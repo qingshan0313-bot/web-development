@@ -1,0 +1,14 @@
+{
+  "name": "frame-material-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-based creative tools, developed locally for Google AI Studio and Cloud Run.",
+  "scripts": {
+    "dev": "node server.mjs --dev",
+    "build": "node build.mjs",
+    "preview": "node server.mjs",
+    "prestart": "node build.mjs",
+    "start": "node server.mjs --production --host 0.0.0.0"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+Thumbs.db
+
+# Local development notes and generated archives
+/开发交接.txt
+*.zip
+*.tmp
+__pycache__/
+.envrc

@@ -1,0 +1,518 @@
+.mix-workspace .editor-layout {
+  grid-template-columns: minmax(310px, 360px) minmax(0, 1fr);
+  align-items: start;
+}
+.mix-settings,
+.mix-output {
+  min-width: 0;
+}
+.mix-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 15px;
+}
+.mix-section-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 650;
+  margin: 0;
+}
+.mix-section-heading h3 > span {
+  font-size: 10px;
+  color: #1265ff;
+  font-weight: 550;
+}
+.mix-section-heading small {
+  color: #84888e;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.mix-material-section + .mix-material-section,
+.mix-output-section {
+  border-top: 1px solid #ececee;
+  margin-top: 24px;
+  padding-top: 24px;
+}
+.mix-settings .upload-box {
+  margin-bottom: 10px;
+}
+.mix-list-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 10px 0;
+}
+.mix-list-toolbar button,
+.mix-record-actions > button:not(.mix-icon-button),
+.mix-job-bottom button {
+  padding: 3px 0;
+  color: #62666d;
+  background: transparent;
+  border: 0;
+  font-size: 11px;
+}
+.mix-list-toolbar button:hover,
+.mix-record-actions > button:not(.mix-icon-button):hover,
+.mix-job-bottom button:hover {
+  color: #1265ff;
+}
+.mix-list-toolbar button:focus-visible,
+.mix-job-preview:focus-visible,
+.mix-icon-button:focus-visible,
+.mix-record-actions > button:focus-visible {
+  outline: 2px solid #1265ff;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.mix-assets {
+  max-height: 305px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.mix-asset {
+  padding: 12px;
+  background: #f7f8fa;
+  border: 1px solid #eceef1;
+  border-radius: 10px;
+}
+.mix-asset + .mix-asset {
+  margin-top: 9px;
+}
+.mix-asset-heading {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+.mix-asset-heading input[type="checkbox"],
+.mix-job-top > input,
+.mix-check input {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  margin: 0;
+  accent-color: #1265ff;
+}
+.mix-asset-title {
+  flex: 1;
+  min-width: 0;
+}
+.mix-asset-title strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mix-asset-title small {
+  display: block;
+  color: #868a91;
+  font-size: 9px;
+  margin-top: 4px;
+}
+.mix-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #8a8e95;
+  padding: 3px;
+}
+.mix-icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+.mix-icon-button:hover {
+  background: #ebeef3;
+  color: #30343a;
+}
+.mix-asset-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 11px;
+}
+.mix-asset-controls label {
+  display: grid;
+  gap: 5px;
+  font-size: 9px;
+  color: #7a7e85;
+}
+.mix-asset-controls input {
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  padding: 5px 7px;
+  border: 1px solid #e1e4e9;
+  border-radius: 6px;
+  color: #25282e;
+  background: #fff;
+  font-size: 11px;
+}
+.mix-asset-controls input:focus {
+  outline: 2px solid #dce9ff;
+  border-color: #1265ff;
+}
+.mix-import-feedback {
+  font-size: 10px;
+  color: #6c7179;
+  line-height: 1.65;
+  max-height: 130px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  margin-top: 8px;
+}
+.mix-import-feedback p {
+  margin: 4px 0;
+}
+.mix-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #51565e;
+  margin: 15px 0 20px;
+}
+.mix-check input {
+  margin-top: 2px;
+}
+.mix-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.mix-field-row .field {
+  min-width: 0;
+}
+.mix-full {
+  width: 100%;
+  justify-content: center;
+  margin-top: 6px;
+}
+.mix-export-hint {
+  font-size: 10px;
+  color: #7c8189;
+  line-height: 1.65;
+  margin: 9px 0 0;
+}
+.mix-local-note {
+  font-size: 10px;
+  line-height: 1.8;
+  color: #8a8e95;
+  border-top: 1px solid #ececee;
+  padding-top: 19px;
+  margin: 23px 0 0;
+}
+.mix-preview-surface {
+  min-height: 320px;
+  padding: 22px;
+}
+.mix-preview-surface canvas {
+  display: block;
+  max-height: 420px;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+.mix-preview .preview-timeline {
+  border-bottom: 0;
+}
+.mix-queue-section,
+.mix-records-section {
+  padding: 24px;
+  border-top: 1px solid #ececee;
+}
+.mix-queue-section .mix-section-heading,
+.mix-records-section .mix-section-heading {
+  margin-bottom: 9px;
+}
+.mix-queue-toolbar #mix-download-all {
+  color: #1265ff;
+  margin-left: auto;
+}
+.mix-summary {
+  padding: 11px 13px;
+  border-radius: 8px;
+  background: #f2f6fd;
+  color: #547297;
+  line-height: 1.75;
+  font-size: 11px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.mix-warning {
+  background: #fff7ed;
+  color: #906f3e;
+}
+.mix-queue {
+  max-height: 530px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 2px;
+}
+.mix-job {
+  border: 1px solid #e9ebef;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+}
+.mix-job + .mix-job {
+  margin-top: 9px;
+}
+.mix-job-active {
+  border-color: #93b9fb;
+  background: #fbfdff;
+}
+.mix-job-top {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+.mix-job-preview {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
+.mix-job-number {
+  color: #a0a5ae;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.mix-job-active .mix-job-number {
+  color: #1265ff;
+}
+.mix-job-names {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.mix-job-names strong,
+.mix-job-names > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+}
+.mix-job-names > span {
+  color: #7e838c;
+  font-size: 10px;
+}
+.mix-status {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 4px 7px;
+  border-radius: 5px;
+  font-size: 9px;
+  white-space: nowrap;
+  line-height: 1.3;
+  background: #f0f1f3;
+  color: #7b818b;
+}
+.mix-status-generating {
+  background: #eaf2ff;
+  color: #1265ff;
+}
+.mix-status-generated,
+.mix-status-completed {
+  background: #eaf6f0;
+  color: #338368;
+}
+.mix-status-failed {
+  background: #fceeed;
+  color: #b05c59;
+}
+.mix-job-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  margin-top: 10px;
+  padding-left: 23px;
+  color: #969ba3;
+  font-size: 9px;
+}
+.mix-job-bottom button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #1265ff;
+  white-space: nowrap;
+}
+.mix-job-bottom button svg {
+  width: 12px;
+  height: 12px;
+}
+.mix-job-error {
+  margin: 9px 0 0;
+  padding: 8px 10px;
+  border-radius: 5px;
+  background: #fff3f2;
+  color: #a75955;
+  line-height: 1.65;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.mix-empty {
+  padding: 20px 12px;
+  color: #9a9ea6;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.9;
+  border: 1px dashed #e3e6eb;
+  border-radius: 9px;
+}
+.mix-empty-large {
+  padding: 33px 18px;
+}
+.mix-record-note {
+  font-size: 10px;
+  color: #90959d;
+  line-height: 1.7;
+  margin: 9px 0 16px;
+}
+.mix-records {
+  max-height: 400px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.mix-record {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 13px 0;
+  border-bottom: 1px solid #f0f1f4;
+}
+.mix-record:first-child {
+  padding-top: 0;
+}
+.mix-record:last-child {
+  border-bottom: 0;
+}
+.mix-record-main {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.mix-record-main strong {
+  color: #4f555f;
+  font-weight: 500;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mix-record-main > span {
+  color: #90959e;
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+.mix-record-main small {
+  font-size: 9px;
+  color: #b1b5bc;
+}
+.mix-record-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+  flex-shrink: 0;
+  max-width: 140px;
+}
+.mix-record-actions > button:not(.mix-icon-button) {
+  font-size: 9px;
+}
+@media (max-width: 1120px) {
+  .mix-workspace .editor-layout {
+    grid-template-columns: minmax(285px, 325px) minmax(0, 1fr);
+  }
+  .mix-job-top {
+    gap: 6px;
+  }
+  .mix-job-number {
+    display: none;
+  }
+  .mix-queue-section,
+  .mix-records-section {
+    padding: 18px;
+  }
+  .mix-job-bottom {
+    flex-wrap: wrap;
+    padding-left: 20px;
+  }
+}
+@media (max-width: 850px) {
+  .mix-workspace .editor-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mix-preview-surface {
+    min-height: 250px;
+  }
+  .mix-preview-surface canvas {
+    max-height: 330px;
+  }
+  .mix-assets {
+    max-height: 265px;
+  }
+}
+@media (max-width: 480px) {
+  .mix-queue-section,
+  .mix-records-section {
+    padding: 16px;
+  }
+  .mix-preview-surface {
+    padding: 15px;
+    min-height: 220px;
+  }
+  .mix-preview-surface canvas {
+    max-height: 260px;
+  }
+  .mix-field-row {
+    gap: 8px;
+  }
+  .mix-job {
+    padding: 9px;
+  }
+  .mix-job-top > .mix-icon-button {
+    width: 20px;
+    flex-basis: 20px;
+  }
+  .mix-job-names strong {
+    font-size: 10px;
+  }
+  .mix-status {
+    font-size: 8px;
+    padding: 4px 5px;
+  }
+  .mix-record {
+    gap: 8px;
+  }
+  .mix-record-actions {
+    max-width: 90px;
+  }
+  .mix-queue-toolbar #mix-download-all {
+    margin-left: 0;
+  }
+}

@@ -1,0 +1,954 @@
+.smart-workspace .editor-layout {
+  grid-template-columns: minmax(285px, 330px) minmax(0, 1fr);
+  align-items: start;
+}
+.smart-settings,
+.smart-output {
+  min-width: 0;
+}
+.smart-settings > section + section {
+  margin-top: 26px;
+  padding-top: 24px;
+  border-top: 1px solid #ececee;
+}
+.smart-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.smart-section-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.smart-section-heading h3 > span {
+  font-size: 10px;
+  color: #1265ff;
+}
+.smart-settings .upload-box {
+  margin-bottom: 10px;
+}
+.smart-note {
+  color: #84888e;
+  font-size: 11px;
+  line-height: 1.8;
+  margin: 10px 0 14px;
+  overflow-wrap: anywhere;
+}
+.smart-settings .field {
+  margin-bottom: 16px;
+}
+.smart-settings .field > span {
+  font-size: 11px;
+}
+.smart-settings .field input,
+.smart-settings .field select {
+  min-width: 0;
+  font-size: 12px;
+}
+.smart-settings .field input[type="password"],
+.smart-settings .field input[type="url"] {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  padding: 11px 12px;
+  color: #4c535e;
+  background: #fafafa;
+  border: 1px solid #dedee1;
+  border-radius: 7px;
+  font-family: inherit;
+}
+.smart-settings .field input[type="password"]:focus,
+.smart-settings .field input[type="url"]:focus {
+  outline: 0;
+  border-color: #1265ff;
+  box-shadow: 0 0 0 2px #1265ff12;
+}
+.smart-field-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.smart-full {
+  width: 100%;
+  margin-top: 10px;
+}
+.smart-key-actions {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 18px;
+}
+.smart-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #646970;
+  font-size: 11px;
+}
+.smart-check input,
+.smart-consent > input,
+.smart-uniform-field input[type="checkbox"],
+.smart-asset-heading > input {
+  accent-color: #1265ff;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex: 0 0 14px;
+}
+.smart-key-actions > button,
+.smart-text-button,
+.smart-list-toolbar button,
+.smart-asset-footer button {
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: #68707b;
+  font-size: 11px;
+  cursor: pointer;
+}
+.smart-key-actions > button:hover,
+.smart-text-button:hover,
+.smart-list-toolbar button:hover,
+.smart-asset-footer button:hover {
+  color: #1265ff;
+}
+.smart-key-actions > button:focus-visible,
+.smart-text-button:focus-visible,
+.smart-list-toolbar button:focus-visible,
+.smart-asset-footer button:focus-visible,
+.smart-thumbnail:focus-visible {
+  outline: 2px solid #1265ff;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.smart-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid #dce5f9;
+  border-radius: 10px;
+  background: #f7faff;
+  color: #4f5a6d;
+  font-size: 11px;
+  line-height: 1.8;
+}
+.smart-consent > input {
+  margin-top: 3px;
+}
+.smart-consent small {
+  display: block;
+  color: #8892a2;
+  font-size: 10px;
+  margin-top: 4px;
+}
+.smart-progress {
+  margin-top: 14px;
+}
+.smart-progress-track {
+  height: 4px;
+  background: #e9edf4;
+  border-radius: 9px;
+  overflow: hidden;
+}
+.smart-progress-track span {
+  display: block;
+  height: 100%;
+  background: #1265ff;
+  width: 0;
+  transition: width 0.2s ease;
+}
+.smart-progress p {
+  margin: 8px 0;
+  color: #707781;
+  font-size: 10px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.smart-settings textarea {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  padding: 12px;
+  color: #454b56;
+  font:
+    11px/1.8 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  border: 1px solid #dfe2e8;
+  border-radius: 8px;
+  background: #fafbfc;
+  overflow-wrap: anywhere;
+}
+.smart-template-help {
+  margin: 4px 0 12px;
+  color: #858b95;
+  font-size: 10px;
+  line-height: 1.8;
+}
+.smart-template-help summary {
+  color: #5e6d84;
+  cursor: pointer;
+}
+.smart-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 12px;
+}
+.smart-token-list button {
+  border: 1px solid #e5e8ed;
+  background: #fff;
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 9px;
+  color: #68778e;
+}
+.smart-token-list code {
+  color: #99a1ad;
+  font-size: 8px;
+}
+.smart-session-note {
+  margin: 24px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid #ececee;
+}
+.smart-uniform-section {
+  padding: 24px;
+  border-bottom: 1px solid #ececee;
+}
+.smart-uniform-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 10px;
+}
+.smart-uniform-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.smart-field-heading,
+.smart-field-heading > label,
+.smart-field-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.smart-field-heading {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  color: #777e88;
+  font-size: 10px;
+}
+.smart-field-caption small {
+  margin-left: 4px;
+  color: #a0a5ad;
+  font-size: 8px;
+  white-space: nowrap;
+}
+.smart-new-tag {
+  flex-shrink: 0;
+  padding: 2px 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #5c7eb0;
+  font-size: 9px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.smart-new-tag:hover {
+  color: #1265ff;
+  background: #f0f5ff;
+}
+.smart-new-tag:focus-visible {
+  outline: 2px solid #1265ff;
+  outline-offset: 2px;
+}
+.smart-uniform-field input[type="text"],
+.smart-uniform-actions select,
+.smart-asset-field > input,
+.smart-metadata-fields input,
+.smart-name-row input,
+.smart-option-add input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 7px 9px;
+  border: 1px solid #e1e4e9;
+  border-radius: 7px;
+  background: #fff;
+  font-size: 11px;
+  color: #414955;
+}
+.smart-uniform-field input:focus,
+.smart-asset-field input:focus,
+.smart-name-row input:focus,
+.smart-option-add input:focus,
+.smart-metadata-fields input:focus {
+  outline: 0;
+  border-color: #1265ff;
+  box-shadow: 0 0 0 2px #1265ff12;
+}
+.smart-uniform-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 20px;
+}
+.smart-uniform-actions select {
+  width: auto;
+  min-width: 145px;
+}
+.smart-uniform-actions .button {
+  min-height: 34px;
+  padding: 8px 13px;
+  font-size: 11px;
+}
+.smart-list-toolbar {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+}
+.smart-list-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.smart-summary,
+.smart-error {
+  margin: 0 24px 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f5f8fe;
+  color: #61738e;
+  font-size: 11px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.smart-error {
+  color: #ad554e;
+  background: #fff6f4;
+}
+.smart-assets {
+  padding: 0 20px;
+}
+.smart-asset {
+  border: 1px solid #e7e9ee;
+  border-radius: 13px;
+  padding: 18px;
+  margin-bottom: 16px;
+  background: #fff;
+  min-width: 0;
+}
+.smart-asset-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.smart-thumbnail {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  background: #f3f4f6;
+  border: 0;
+  padding: 0;
+  border-radius: 7px;
+  overflow: hidden;
+  flex: 0 0 58px;
+}
+.smart-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.smart-thumbnail svg {
+  position: absolute;
+  width: 17px;
+  height: 17px;
+  color: #fff;
+  stroke: currentColor;
+  fill: none;
+  bottom: 3px;
+  right: 3px;
+  filter: drop-shadow(0 1px 2px #0009);
+}
+.smart-asset-title {
+  min-width: 0;
+  flex: 1;
+}
+.smart-asset-title strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.smart-asset-title small {
+  display: block;
+  margin-top: 5px;
+  font-size: 9px;
+  color: #8b929d;
+  line-height: 1.8;
+}
+.smart-status {
+  border-radius: 5px;
+  font-size: 9px;
+  padding: 4px 7px;
+  color: #88909b;
+  background: #f2f4f7;
+  white-space: nowrap;
+}
+.smart-status-ready {
+  color: #1b8a62;
+  background: #eff9f4;
+}
+.smart-status-analyzing {
+  color: #1265ff;
+  background: #edf4ff;
+}
+.smart-status-failed {
+  color: #b75d55;
+  background: #fff3f1;
+}
+.smart-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #9298a2;
+  cursor: pointer;
+  flex: 0 0 26px;
+}
+.smart-icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.smart-icon-button:hover {
+  background: #f1f3f7;
+  color: #313a48;
+}
+.smart-name-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 17px 0;
+}
+.smart-name-row label {
+  flex: 1;
+  min-width: 0;
+}
+.smart-name-row label > span {
+  display: block;
+  font-size: 9px;
+  color: #7b8799;
+  margin-bottom: 6px;
+  letter-spacing: 0.4px;
+}
+.smart-name-row input {
+  background: #f7f9fd;
+  border-color: #e5eaf3;
+  color: #42618d;
+  font:
+    11px ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.smart-name-row > button {
+  margin-bottom: 9px;
+  white-space: nowrap;
+  font-size: 9px;
+}
+.smart-asset-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 10px;
+}
+.smart-asset-field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+.smart-asset-field > .smart-field-heading {
+  color: #7d8490;
+  font-size: 9px;
+  gap: 3px;
+  min-height: 15px;
+}
+.smart-field-actions {
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.smart-field-actions [data-smart-action="unlock-field"] {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #5180c7;
+  font-size: 8px;
+  cursor: pointer;
+}
+.smart-asset-field.is-protected input {
+  border-color: #cdddf6;
+  background: #fcfdff;
+}
+.smart-metadata-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed #e6e9ed;
+}
+.smart-metadata-fields label {
+  display: grid;
+  gap: 6px;
+  color: #8b929b;
+  font-size: 9px;
+  min-width: 0;
+}
+.smart-metadata-fields input {
+  height: 30px;
+  font-size: 10px;
+}
+.smart-asset-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #f7f8fa;
+  color: #78818e;
+  font-size: 10px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+.smart-asset-note.smart-error {
+  background: #fff6f4;
+  color: #ad554e;
+}
+.smart-asset-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+.smart-asset-footer > span {
+  color: #a0a5ae;
+  font-size: 9px;
+  line-height: 1.8;
+}
+.smart-asset-footer > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.smart-asset-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+}
+.smart-asset-footer svg {
+  width: 12px;
+  height: 12px;
+}
+.smart-empty {
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  background: #f7f8fa;
+  border-radius: 12px;
+  padding: 30px;
+  text-align: center;
+  color: #9da5b0;
+}
+.smart-empty > svg {
+  width: 36px;
+  height: 36px;
+}
+.smart-empty strong {
+  font-size: 14px;
+  color: #687587;
+  font-weight: 500;
+}
+.smart-empty p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.9;
+}
+.smart-export-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 24px;
+  margin-top: 18px;
+  border-top: 1px solid #ececee;
+}
+.smart-export-bar strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.smart-export-bar p {
+  margin: 5px 0 0;
+  color: #989ea8;
+  font-size: 10px;
+}
+.smart-export-bar > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.smart-export-bar .button {
+  font-size: 11px;
+  padding: 10px 13px;
+  min-height: 38px;
+}
+.smart-output button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.smart-title-group {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 9px 12px;
+}
+.smart-title-group h1 {
+  margin: 0;
+}
+.smart-title-group > p {
+  grid-column: 1 / -1;
+}
+.smart-help-button {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  color: #1265ff;
+  background: #f5f8ff;
+  border: 1px solid #dce7ff;
+  border-radius: 20px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.smart-help-button:hover {
+  background: #eaf1ff;
+}
+.smart-help-button svg {
+  width: 14px;
+  height: 14px;
+}
+.smart-help-button:focus-visible {
+  outline: 2px solid #1265ff;
+  outline-offset: 3px;
+}
+.smart-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 85vh;
+  border: 1px solid #e6e9ee;
+  border-radius: 16px;
+  padding: 24px;
+  color: #20242c;
+  background: #fff;
+}
+.smart-dialog::backdrop {
+  background: #121b2d65;
+  backdrop-filter: blur(3px);
+}
+.smart-dialog-heading {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.smart-dialog-heading h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.smart-dialog .field {
+  margin-bottom: 14px;
+}
+.smart-dialog.smart-help-dialog {
+  width: min(640px, calc(100vw - 32px));
+  padding: 0;
+}
+.smart-help-dialog > .smart-dialog-heading {
+  padding: 18px 22px;
+  margin: 0;
+  border-bottom: 1px solid #eceef2;
+}
+.smart-help-content {
+  max-height: min(65vh, 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px 22px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #69717e;
+}
+.smart-help-content section + section {
+  margin-top: 22px;
+}
+.smart-help-content h4 {
+  margin: 0 0 8px;
+  color: #20242c;
+  font-size: 13px;
+  font-weight: 650;
+}
+.smart-help-content p {
+  margin: 0 0 10px;
+}
+.smart-help-structure {
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: #f5f8ff;
+  overflow-wrap: anywhere;
+}
+.smart-help-structure strong {
+  color: #4269a3;
+  font-weight: 550;
+}
+.smart-help-structure p {
+  margin: 4px 0 0;
+}
+.smart-help-fields {
+  margin: 12px 0 0;
+}
+.smart-help-fields > div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid #f0f1f3;
+}
+.smart-help-fields dt {
+  color: #424b58;
+}
+.smart-help-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.smart-help-fields code {
+  font: inherit;
+  color: #526b91;
+}
+.smart-help-fields small {
+  display: block;
+  font-size: 11px;
+  color: #9299a3;
+}
+.smart-help-content ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.smart-help-content li + li {
+  margin-top: 5px;
+}
+#smart-options-list {
+  max-height: 300px;
+  overflow: auto;
+  margin: 10px 0 16px;
+}
+.smart-option-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid #f0f1f3;
+  font-size: 11px;
+}
+.smart-option-row code {
+  color: #5875a0;
+  width: 90px;
+  flex-shrink: 0;
+  overflow-wrap: anywhere;
+}
+.smart-option-row > span {
+  flex: 1;
+  color: #7c8591;
+  overflow-wrap: anywhere;
+}
+.smart-option-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.smart-option-add > label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: #7d8490;
+  font-size: 10px;
+}
+.smart-option-add .button {
+  min-height: 34px;
+  padding: 7px 12px;
+  font-size: 11px;
+}
+.smart-media-dialog {
+  width: min(900px, calc(100vw - 32px));
+}
+#smart-media-preview {
+  display: flex;
+  justify-content: center;
+  background: #f2f3f5;
+  border-radius: 8px;
+  overflow: hidden;
+}
+#smart-media-preview > img,
+#smart-media-preview > video {
+  max-width: 100%;
+  max-height: 65vh;
+  object-fit: contain;
+}
+@media (max-width: 1250px) {
+  .smart-workspace .editor-layout {
+    grid-template-columns: minmax(265px, 295px) minmax(0, 1fr);
+  }
+  .smart-uniform-grid,
+  .smart-asset-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .smart-asset-heading {
+    gap: 8px;
+  }
+  .smart-status {
+    font-size: 8px;
+    padding: 3px 5px;
+  }
+  .smart-uniform-section,
+  .smart-export-bar {
+    padding: 20px;
+  }
+  .smart-assets {
+    padding: 0 15px;
+  }
+  .smart-asset {
+    padding: 15px;
+  }
+}
+@media (max-width: 1000px) {
+  .smart-workspace .editor-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .smart-workspace .settings-panel {
+    order: 1;
+  }
+  .smart-workspace .preview-panel {
+    order: 2;
+  }
+  .smart-uniform-grid,
+  .smart-asset-fields {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .smart-uniform-grid,
+  .smart-asset-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .smart-uniform-section,
+  .smart-export-bar {
+    padding: 16px;
+  }
+  .smart-list-toolbar {
+    padding: 16px;
+  }
+  .smart-assets {
+    padding: 0 12px;
+  }
+  .smart-asset {
+    padding: 12px;
+  }
+  .smart-thumbnail {
+    width: 42px;
+    height: 48px;
+    flex-basis: 42px;
+  }
+  .smart-asset-heading {
+    flex-wrap: wrap;
+  }
+  .smart-asset-title {
+    flex-basis: calc(100% - 115px);
+  }
+  .smart-asset-title strong {
+    font-size: 11px;
+  }
+  .smart-status {
+    margin-left: 22px;
+  }
+  .smart-asset-heading > .smart-icon-button {
+    margin-left: auto;
+  }
+  .smart-metadata-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .smart-export-bar > div:last-child {
+    width: 100%;
+  }
+  .smart-export-bar .button {
+    flex: 1;
+    font-size: 10px;
+    padding: 10px;
+  }
+  .smart-uniform-actions {
+    gap: 10px;
+  }
+  .smart-uniform-actions select {
+    flex: 1;
+    min-width: 120px;
+  }
+  .smart-dialog {
+    padding: 18px;
+  }
+  .smart-option-add {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .smart-option-add > button {
+    grid-column: 1 / -1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .smart-progress-track span {
+    transition: none;
+  }
+}

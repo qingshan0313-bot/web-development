@@ -1,0 +1,48 @@
+Mediabunny 1.66.0
+Copyright (c) 2026-present, Vanilagy and contributors
+License: Mozilla Public License 2.0 (MPL-2.0)
+
+The unmodified browser bundle is included as src/vendor/mediabunny.js and copied
+to dist/vendor/mediabunny.js. It is the mediabunny.min.cjs bundle from the
+official npm package. No CDN or remote service is used at runtime.
+
+Full license: src/vendor/MEDIABUNNY-LICENSE.txt (also included in dist/vendor/).
+Corresponding source, including the src/ directory for this exact version:
+https://registry.npmjs.org/mediabunny/-/mediabunny-1.66.0.tgz
+Project: https://github.com/Vanilagy/mediabunny
+Documentation: https://mediabunny.dev/
+
+ffmpeg.wasm JavaScript wrapper (@ffmpeg/ffmpeg 0.12.15)
+Copyright (c) 2019 Jerome Wu
+License: MIT
+The unmodified official UMD ffmpeg.js and 814.ffmpeg.js files are included in
+src/vendor/ffmpeg/ and copied to dist/vendor/ffmpeg/.
+Full license: vendor/ffmpeg/FFMPEG-WRAPPER-LICENSE.txt.
+Official package: https://registry.npmjs.org/@ffmpeg/ffmpeg/-/ffmpeg-0.12.15.tgz
+Exact wrapper release source:
+https://github.com/ffmpegwasm/ffmpeg.wasm/tree/f78aed147c4185484da8eba1d97c51354a5e3352/packages/ffmpeg
+
+ffmpeg.wasm single-thread core (@ffmpeg/core 0.12.10)
+Copyright FFmpeg developers and the respective linked-library contributors.
+License: GPL-2.0-or-later, as declared by the official core package. This is a
+GPL-enabled FFmpeg build; the wrapper's MIT license does not cover the core.
+The unmodified official UMD ffmpeg-core.js and ffmpeg-core.wasm are included in
+src/vendor/ffmpeg/ and copied to dist/vendor/ffmpeg/.
+Full GPL license: vendor/ffmpeg/FFMPEG-CORE-LICENSE.txt.
+Official package: https://registry.npmjs.org/@ffmpeg/core/-/core-0.12.10.tgz
+Exact core 0.12.10 release source and build scripts:
+https://github.com/ffmpegwasm/ffmpeg.wasm/tree/71aa99d37c02a7b4c435275ca9ef50e612f6efa1
+Source archive:
+https://github.com/ffmpegwasm/ffmpeg.wasm/archive/71aa99d37c02a7b4c435275ca9ef50e612f6efa1.tar.gz
+This release builds FFmpeg n5.1.4. FFmpeg source archive:
+https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n5.1.4.tar.gz
+The release Dockerfile lists the source repositories and versions of all linked
+libraries (including x264, x265, libvpx, LAME, Ogg, Theora, Opus, Vorbis, zlib,
+libwebp, FreeType, FriBidi, HarfBuzz, libass and zimg):
+https://github.com/ffmpegwasm/ffmpeg.wasm/blob/71aa99d37c02a7b4c435275ca9ef50e612f6efa1/Dockerfile
+Documentation: https://ffmpegwasm.netlify.app/docs/overview/
+
+These files run locally in the browser, are served from the same static site,
+and do not use a CDN, upload service or server-side transcoder. Keep the complete
+vendor/ffmpeg directory and licenses when copying or deploying dist. The
+single-thread core requires neither SharedArrayBuffer nor COOP/COEP headers.
