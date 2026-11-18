@@ -208,7 +208,7 @@ function drawCover(ctx, image, area) {
   ctx.restore();
 }
 
-function drawMessages(ctx, config, frame, area, fontSize, theme) {
+function drawMessages(ctx, config, frame, area, fontSize, theme, language) {
   const lineHeight = Math.round(fontSize * 1.42);
   ctx.font = `400 ${fontSize}px ${FONT}`;
   const messages = (frame.completed || []).map((message) => {
@@ -237,7 +237,7 @@ function drawMessages(ctx, config, frame, area, fontSize, theme) {
   ctx.clip();
   for (const item of messages) {
     const right = item.message.side === "right";
-    const x = right ? area.x + area.width - 20 - item.width : area.x + 20;
+    const x = right ? WIDTH - 84 - item.width : 84;
     bounds.push({
       id: item.message.id,
       x,
@@ -253,6 +253,25 @@ function drawMessages(ctx, config, frame, area, fontSize, theme) {
         ? config.rightText || "#ffffff"
         : config.leftText || theme.text;
       rounded(ctx, x, y, item.width, item.height, 17, bubble);
+      rounded(
+        ctx,
+        right ? WIDTH - 68 : 20,
+        y,
+        48,
+        48,
+        15,
+        right ? "#e7efff" : theme.avatar,
+      );
+      text(
+        ctx,
+        language === "en" ? (right ? "Me" : "You") : right ? "我" : "TA",
+        right ? WIDTH - 44 : 44,
+        y + 25,
+        language === "en" ? 18 : right ? 21 : 18,
+        right ? "#1265ff" : theme.muted,
+        500,
+        "center",
+      );
       item.lines.forEach((line, index) =>
         text(
           ctx,
@@ -553,6 +572,7 @@ export function renderChat(ctx, config = {}, frame = {}, assets = {}) {
         muted: "#9aabb7",
         divider: "#363c44",
         leftBubble: "#30363d",
+        avatar: "#333e47",
         key: "#424a56",
         keyShadow: "#151a20",
         hint: "#55616d",
@@ -567,6 +587,7 @@ export function renderChat(ctx, config = {}, frame = {}, assets = {}) {
         muted: "#7b8792",
         divider: "#dce1e5",
         leftBubble: "#ffffff",
+        avatar: "#e1e6eb",
         key: "#ffffff",
         keyShadow: "#b7c0ca",
         hint: "#ffffff",
@@ -640,6 +661,7 @@ export function renderChat(ctx, config = {}, frame = {}, assets = {}) {
     chat,
     fontSize,
     theme,
+    language,
   );
   const composerInfo = drawComposer(
     ctx,

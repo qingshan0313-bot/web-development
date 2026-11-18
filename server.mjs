@@ -2,6 +2,7 @@ import http from "node:http";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
 import { handleSmartRequest } from "./smart-relay.mjs";
 
 const development = process.argv.includes("--dev");
@@ -67,7 +68,13 @@ const server = http.createServer(async (request, response) => {
     return;
   }
   try {
-    let content = await readFile(file);
+    let content;
+    const wasmPart = development && /^ffmpeg-core\.wasm\.part([01])$/.exec(path.basename(file));
+    if (wasmPart && path.dirname(file) === path.join(root, "vendor", "ffmpeg")) {
+      const bytes = await readFile(path.join(root, "vendor", "ffmpeg", "ffmpeg-core.wasm"));
+      const start = Number(wasmPart[1]) * 16 * 1024 * 1024;
+      content = bytes.subarray(start, start + 16 * 1024 * 1024);
+    } else content = await readFile(file);
     if (development && file === path.join(root, "index.html")) {
       content = Buffer.from(
         content
@@ -104,8 +111,9 @@ server.on("error", (error) => {
   process.exitCode = 1;
 });
 server.listen(port, host, () => {
+  const url = `http://${host === "0.0.0.0" ? "127.0.0.1" : host.includes(":") ? `[${host}]` : host}:${port}`;
   console.log(
-    `Frame ${development ? "development" : production ? "production" : "production preview"}: http://${host === "0.0.0.0" ? "127.0.0.1" : host}:${port}`,
+    `Frame ${development ? "development" : production ? "production" : "production preview"}: ${url}`,
   );
   console.log(`Listening on ${host}:${port}`);
   console.log(
@@ -113,6 +121,14 @@ server.listen(port, host, () => {
       ? "Edit src/ and refresh your browser. Ctrl+C to stop."
       : "Serving dist/. Ctrl+C to stop.",
   );
+  if (process.argv.includes("--open")) {
+    const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "rundll32.exe" : "xdg-open";
+    const args = process.platform === "win32" ? ["url.dll,FileProtocolHandler", url] : [url];
+    const browser = spawn(command, args, { stdio: "ignore" });
+    const report = () => console.error(`Could not open the browser. Open ${url} manually.`);
+    browser.on("error", report);
+    browser.on("exit", (code) => { if (code) report(); });
+  }
 });
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () => server.close());

@@ -1,0 +1,6 @@
+**
+!Dockerfile
+!build.mjs
+!THIRD_PARTY_NOTICES.txt
+!src/
+!src/**

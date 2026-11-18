@@ -1,5 +1,7 @@
 /** Pure pairing, validation and duplicate detection for browser-local batch mixing. */
 export const MIX_DEFAULTS = Object.freeze({
+  transition: "none",
+  transitionDuration: 0.4,
   mode: "single",
   skipCompleted: true,
   width: 720,
@@ -110,6 +112,8 @@ export function normalizeMixSettings(value = {}) {
       MIX_DEFAULTS.mode,
       "组合方式",
     ),
+    transition: option(value.transition, ["none", "black", "white", "blur"], "none", "转场"),
+    transitionDuration: boundedNumber(value.transitionDuration, "转场时长", 0.4, 0.1, 2),
     skipCompleted: value.skipCompleted ?? MIX_DEFAULTS.skipCompleted,
     width,
     height,
@@ -239,6 +243,7 @@ function jobKey(hook, body, settings) {
       [hook.key, hook.start, hook.end, hook.volume],
       [body.key, body.start, body.end, body.volume],
       [
+        ...(settings.transition !== "none" ? [settings.transition, settings.transitionDuration] : []),
         settings.width,
         settings.height,
         settings.fps,
@@ -395,4 +400,21 @@ export function normalizeMixRecords(value) {
     if (result.length === 500) break;
   }
   return result;
+}
+
+/** Each side uses half the seam duration, capped to the shorter clip. No frames are removed. */
+export function mixTransitionSpan(clips, settings) {
+  return settings.transition && settings.transition !== "none"
+    ? Math.min(settings.transitionDuration / 2, ...clips.map(c => (c.end - c.start) / 2)) : 0;
+}
+export function mixTransitionAmount(time, seam, span) {
+  return span > 0 ? Math.max(0, 1 - Math.abs(time - seam) / span) : 0;
+}
+export function paintMixTransition(ctx, type, amount, width, height) {
+  if (amount <= 0 || !["black", "white"].includes(type)) return;
+  ctx.save();
+  ctx.globalAlpha = amount;
+  ctx.fillStyle = type === "white" ? "#ffffff" : "#000000";
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
 }

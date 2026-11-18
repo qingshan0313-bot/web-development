@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "description": "Browser-based creative tools, developed locally for Google AI Studio and Cloud Run.",
   "scripts": {
     "dev": "node server.mjs --dev",
+    "dev:open": "node server.mjs --dev --open",
     "build": "node build.mjs",
     "preview": "node server.mjs",
     "prestart": "node build.mjs",

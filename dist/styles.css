@@ -2695,3 +2695,9 @@ h2 {
     scroll-behavior: auto !important;
   }
 }
+
+.topbar-right .undo-button {
+  min-height: 32px;
+  padding: 0 12px;
+  white-space: nowrap;
+}

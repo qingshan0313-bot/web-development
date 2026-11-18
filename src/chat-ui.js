@@ -50,6 +50,8 @@ export function setupChatEditor(api) {
     toast,
     errorToast,
     runOperation,
+    registerUndo,
+    recordEdit,
   } = api;
   let project = normalizeChatProject(CHAT_DEFAULTS);
   let schedule = buildChatSchedule(project);
@@ -63,14 +65,12 @@ export function setupChatEditor(api) {
     loadRevision = 0,
     loading = false,
     invalid = "",
-    removed = null,
     timeline;
   let stored;
   try {
     stored = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
     if (stored) {
       project = normalizeChatProject(stored.project);
-      // Apply the English keyboard once to older drafts, preserving later choices.
       if (
         (stored.keyboardDefaultsVersion ?? 0) < KEYBOARD_DEFAULTS_VERSION &&
         project.keyboardLayout !== "none"
@@ -119,7 +119,7 @@ export function setupChatEditor(api) {
       ${field("对话标题", control("title", input("chat-title", project.title, "text", 'maxlength="80"')), "长标题自动缩小，超出部分省略显示")}
       <div class="chat-list-heading"><span id="chat-message-count">${project.messages.length} / 20 条台词</span><button data-chat-action="paste">批量粘贴</button></div>
       <div id="chat-messages" class="chat-messages">${messageMarkup()}</div>
-      <button class="button secondary chat-add" data-chat-action="add">${icon("plus")}添加一句</button><button class="chat-undo" data-chat-action="undo-delete" hidden>撤销刚才的删除</button>
+      <button class="button secondary chat-add" data-chat-action="add">${icon("plus")}添加一句</button>
       <p class="setting-hint chat-script-hint">对方消息直接出现，自己的消息逐字输入。每句可单独设置停留时间，空白台词不会导出。长对话自动滚动。</p>
     </section>
     <section id="chat-panel-screen" class="chat-tab-panel" role="tabpanel" aria-labelledby="chat-tab-screen">
@@ -348,7 +348,6 @@ export function setupChatEditor(api) {
       `${project.messages.length} / 20 条台词`;
     $('[data-chat-action="add"]', settings).disabled =
       project.messages.length >= 20;
-    $('[data-chat-action="undo-delete"]', settings).hidden = !removed;
     $("#chat-project-summary").textContent =
       `${schedule.messages.length} 条台词 · ${durationText(schedule.duration)}`;
     $("#chat-export-duration").textContent = durationText(schedule.duration);
@@ -460,12 +459,14 @@ export function setupChatEditor(api) {
         throw new Error("背景图压缩后仍过大，请选择更小的图片。");
       const savedImage = await loadImage(data);
       if (signal.aborted || revision !== loadRevision) return;
-      assets = {
-        backgroundImage: savedImage,
-        backgroundData: data,
-        backgroundName: file.name,
-      };
-      refresh();
+      recordEdit(() => {
+        assets = {
+          backgroundImage: savedImage,
+          backgroundData: data,
+          backgroundName: file.name,
+        };
+        refresh();
+      });
     } finally {
       finishLoad(revision);
     }
@@ -510,11 +511,12 @@ export function setupChatEditor(api) {
             : "项目背景图";
       }
       if (signal.aborted || revision !== loadRevision) return;
-      project = next;
-      assets = nextAssets;
-      removed = null;
-      renderSettings();
-      timeline.seek(0);
+      recordEdit(() => {
+        project = next;
+        assets = nextAssets;
+        renderSettings();
+        timeline.seek(0);
+      });
       toast("项目已导入，可继续编辑。");
     } finally {
       finishLoad(revision);
@@ -549,10 +551,11 @@ export function setupChatEditor(api) {
           hold: 1.2,
         };
       });
-      project = normalizeChatProject({ ...project, messages });
-      removed = null;
-      renderMessages();
-      timeline.seek(0);
+      recordEdit(() => {
+        project = normalizeChatProject({ ...project, messages });
+        renderMessages();
+        timeline.seek(0);
+      });
       pasteDialog.close();
       toast(`已导入 ${messages.length} 条台词。`);
     } catch (error) {
@@ -697,17 +700,7 @@ export function setupChatEditor(api) {
           ?.focus();
       }
       if (action === "delete" && index >= 0) {
-        removed = { message: project.messages[index], index };
         project.messages.splice(index, 1);
-        renderMessages();
-      }
-      if (action === "undo-delete" && removed && project.messages.length < 20) {
-        project.messages.splice(
-          Math.min(removed.index, project.messages.length),
-          0,
-          removed.message,
-        );
-        removed = null;
         renderMessages();
       }
       if (["up", "down"].includes(action) && index >= 0) {
@@ -790,7 +783,6 @@ export function setupChatEditor(api) {
           backgroundData: "",
           backgroundName: "",
         };
-        removed = null;
         renderSettings();
         timeline.seek(0);
       }
@@ -851,29 +843,40 @@ export function setupChatEditor(api) {
 
   showTab(tab, false);
   syncControls();
-  if (
-    stored?.backgroundData &&
-    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(
-      stored.backgroundData,
-    ) &&
-    stored.backgroundData.length <= 3500000
-  ) {
+  function loadDraftBackground() {
+    const { backgroundData } = assets;
     const revision = beginLoad();
-    loadImage(stored.backgroundData)
+    loadImage(backgroundData)
       .then((image) => {
         if (signal.aborted || revision !== loadRevision) return;
-        assets = {
-          backgroundImage: image,
-          backgroundData: stored.backgroundData,
-          backgroundName: String(stored.backgroundName || "草稿背景图"),
-        };
+        assets.backgroundImage = image;
         refresh();
       })
       .catch(() => {
-        if (!signal.aborted) toast("草稿背景图无法读取，请重新选择。");
+        if (!signal.aborted && revision === loadRevision)
+          toast("草稿背景图无法读取，请重新选择。");
       })
       .finally(() => finishLoad(revision));
   }
+  if (
+    stored?.backgroundData &&
+    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(stored.backgroundData) &&
+    stored.backgroundData.length <= 3500000
+  ) {
+    assets.backgroundData = stored.backgroundData;
+    assets.backgroundName = String(stored.backgroundName || "草稿背景图");
+    loadDraftBackground();
+  }
+  registerUndo({
+    capture: () => ({ project, assets }),
+    restore(state) {
+      loadRevision++;
+      loading = false;
+      ({ project, assets } = state);
+      renderSettings();
+      if (assets.backgroundData && !assets.backgroundImage) loadDraftBackground();
+    },
+  });
   addCleanup(() => {
     saveDraft();
     clearTimeout(saveTimer);

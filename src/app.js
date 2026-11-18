@@ -1,3 +1,4 @@
+import { copyUndoState, createUndoHistory } from "./undo-history.js";
 import { download, zipFiles, loadImage, canvasBlob } from "./media.js";
 import {
   loadVideo,
@@ -386,8 +387,89 @@ function renderTools() {
       : "试试其他关键词，或切换分类。";
   renderNavigation();
 }
+const undoHistory = createUndoHistory();
+const toolStates = new Map();
+let undoEditor = null;
+let recordingUndo = false;
+
+function syncUndoButton() {
+  const button = $("#undo");
+  const latest = undoHistory.latest;
+  button.disabled = !latest || Boolean(operationController);
+  button.title = latest
+    ? `撤销${tools.find(({ id }) => id === latest.tool).name}的上一步（Ctrl / ⌘ + Z）`
+    : "撤销（Ctrl / ⌘ + Z）";
+}
+
+const settingsControls =
+  "#settings input[id]:not([type=file]):not([type=password]), #settings textarea[id], #settings select[id]";
+
+function registerUndo({ capture = () => null, restore = () => {}, controls }) {
+  const fields = controls ? $$(controls) : [];
+  const readFields = () => fields.map((field) =>
+    field.type === "checkbox" ? field.checked : field.value,
+  );
+  let previousFields = readFields();
+  undoEditor = {
+    capture: () => ({ model: copyUndoState(capture()), fields: readFields() }),
+    before: () => ({ model: copyUndoState(capture()), fields: previousFields }),
+    refreshFields: () => { previousFields = readFields(); },
+    restore(state) {
+      fields.forEach((field, index) => {
+        if (field.type === "checkbox") field.checked = state.fields[index];
+        else field.value = state.fields[index];
+      });
+      restore(copyUndoState(state.model));
+      previousFields = readFields();
+    },
+  };
+}
+
+function recordEdit(edit, key) {
+  const editor = undoEditor;
+  if (!editor || recordingUndo) return edit();
+  const tool = currentTool;
+  const before = editor.before();
+  recordingUndo = true;
+  try {
+    return edit();
+  } finally {
+    recordingUndo = false;
+    if (undoEditor === editor) {
+      undoHistory.record(tool, before, editor.capture(), key);
+      editor.refreshFields();
+      syncUndoButton();
+    }
+  }
+}
+
+// Used when a modal operation owns the editor until its asynchronous work finishes.
+function beginUndoEdit() {
+  const editor = undoEditor;
+  const tool = currentTool;
+  const before = editor.capture();
+  return () => {
+    if (undoEditor !== editor) return;
+    undoHistory.record(tool, before, editor.capture());
+    syncUndoButton();
+  };
+}
+
+function undoLastEdit() {
+  if (operationController || !undoHistory.latest) return false;
+  const { tool, before } = undoHistory.pop();
+  if (currentTool !== tool) openTool(tool, activeCategory, before);
+  else undoEditor.restore(before);
+  syncUndoButton();
+  toast(`已撤销${tools.find(({ id }) => id === tool).name}的上一步。`);
+  return true;
+}
+
 function closeWorkspace() {
   mobileNavigationOpen = false;
+  if (currentTool && undoEditor) toolStates.set(currentTool, undoEditor.capture());
+  undoEditor = null;
+  undoHistory.breakGroup();
   toolController?.abort();
   cleanups.forEach((fn) => {
     try {
@@ -402,7 +484,17 @@ function closeWorkspace() {
   renderTools();
 }
 function on(element, event, handler) {
-  element.addEventListener(event, handler, { signal: toolController.signal });
+  const signal = toolController.signal;
+  const track = ["input", "change", "click", "submit", "focusout"].includes(event)
+    && $("#workspace").contains(element);
+  element.addEventListener(event, track ? (e) => {
+    const key = (e.type === "input" || e.type === "change") &&
+      e.target.matches('textarea,input:not([type="checkbox"]):not([type="radio"])')
+      ? e.target : null;
+    const result = recordEdit(() => handler(e), key);
+    if (e.type === "change") undoHistory.breakGroup();
+    return result;
+  } : handler, { signal });
 }
 function field(label, control, hint = "") {
   return `<label class="field"><span>${label}${hint ? `<small>${hint}</small>` : ""}</span>${control}</label>`;
@@ -737,6 +829,7 @@ function errorToast(error) {
 async function runOperation(title, action) {
   if (operationController) return;
   operationController = new AbortController();
+  syncUndoButton();
   const overlay = document.createElement("div");
   overlay.className = "processing-overlay";
   overlay.setAttribute("role", "dialog");
@@ -763,6 +856,7 @@ async function runOperation(title, action) {
     else errorToast(error);
   } finally {
     operationController = null;
+    syncUndoButton();
     overlay.remove();
     $(".app-shell").inert = oldInert;
     $("#export")?.focus();
@@ -822,6 +916,7 @@ function setupCompose() {
     selected = 0,
     loadRevision = 0,
     backgroundRevision = 0,
+    backgroundName = "",
     frame = 0;
   let completedResults = [],
     batchFailures = [],
@@ -960,17 +1055,27 @@ function setupCompose() {
       showVideo(Math.min(selected, Math.max(0, files.length - 1)));
     }
   });
+  function renderBackground() {
+    const status = $("#background-status");
+    status.hidden = !background;
+    status.innerHTML = background
+      ? `已添加：${escapeHTML(backgroundName)} <button id="remove-background" class="text-link">移除</button>`
+      : "";
+  }
   on($("#background"), "change", async (e) => {
     const revision = ++backgroundRevision;
     const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
     try {
       const image = await imageFile(file);
       if (signal.aborted || revision !== backgroundRevision) return;
-      background = image;
-      $("#background-status").hidden = false;
-      $("#background-status").innerHTML =
-        `已添加：${escapeHTML(file.name)} <button id="remove-background" class="text-link">移除</button>`;
-      draw();
+      recordEdit(() => {
+        background = image;
+        backgroundName = file.name;
+        renderBackground();
+        draw();
+      });
     } catch (error) {
       if (!signal.aborted && revision === backgroundRevision) errorToast(error);
     }
@@ -981,7 +1086,8 @@ function setupCompose() {
     backgroundRevision++;
     background = null;
     $("#background").value = "";
-    $("#background-status").hidden = true;
+    backgroundName = "";
+    renderBackground();
     draw();
   });
   on($("#batch-report"), "click", (e) => {
@@ -1078,6 +1184,21 @@ function setupCompose() {
   });
   updateFiles();
   draw();
+  registerUndo({
+    controls: settingsControls,
+    capture: () => ({ files, selected, background, backgroundName }),
+    restore(state) {
+      const reload = files.length !== state.files.length ||
+        files.some((file, index) => file !== state.files[index]) ||
+        selected !== state.selected;
+      ({ files, selected, background, backgroundName } = state);
+      backgroundRevision++;
+      $("#background").value = "";
+      renderBackground();
+      if (reload) showVideo(selected);
+      else draw();
+    },
+  });
 }
 
 function setupRename() {
@@ -1194,6 +1315,14 @@ function setupRename() {
     });
   });
   render();
+  registerUndo({
+    controls: settingsControls,
+    capture: () => ({ files, names }),
+    restore(state) {
+      ({ files, names } = state);
+      render();
+    },
+  });
 }
 
 function formatTime(seconds, srt = false) {
@@ -1246,7 +1375,7 @@ function setupSubtitles() {
       exportButton("导出 SRT 字幕"),
     '<div id="subtitle-list" class="subtitle-list"></div><button id="add-subtitle" class="button secondary add-subtitle">添加一条字幕</button><div class="preview-caption"><span id="subtitle-info"></span><span>精确至毫秒</span></div>',
   );
-  let rows = [];
+  let rows = [], importRevision = 0;
   function render() {
     $("#subtitle-list").innerHTML = rows
       .map(
@@ -1296,11 +1425,13 @@ function setupSubtitles() {
   on($("#srt-file"), "change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    e.target.value = "";
+    const revision = ++importRevision;
     try {
       const text = (await file.text())
         .replace(/^\uFEFF/, "")
         .replace(/\r/g, "");
-      if (signal.aborted) return;
+      if (signal.aborted || revision !== importRevision) return;
       const parsed = text
         .split(/\n\s*\n/)
         .filter((s) => s.trim())
@@ -1325,8 +1456,10 @@ function setupSubtitles() {
           };
         });
       if (!parsed.length) throw new Error("字幕文件为空。");
-      rows = parsed;
-      render();
+      recordEdit(() => {
+        rows = parsed;
+        render();
+      });
       toast(`已导入 ${rows.length} 条字幕。`);
     } catch (error) {
       errorToast(error);
@@ -1364,6 +1497,15 @@ function setupSubtitles() {
     toast("SRT 字幕已导出。");
   });
   generate();
+  registerUndo({
+    controls: settingsControls,
+    capture: () => (rows),
+    restore(state) {
+      importRevision++;
+      rows = state;
+      render();
+    },
+  });
 }
 
 function setupPolaroid() {
@@ -1408,12 +1550,17 @@ function setupPolaroid() {
     ctx.globalAlpha = 1;
   }
   on($("#photo"), "change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
     const current = ++revision;
     try {
-      const result = await imageFile(e.target.files[0]);
+      const result = await imageFile(file);
       if (current !== revision || signal.aborted) return;
-      photo = result;
-      draw();
+      recordEdit(() => {
+        photo = result;
+        draw();
+      });
     } catch (error) {
       errorToast(error);
     }
@@ -1428,6 +1575,15 @@ function setupPolaroid() {
     }
   });
   draw();
+  registerUndo({
+    controls: settingsControls,
+    capture: () => (photo),
+    restore(state) {
+      revision++;
+      photo = state;
+      draw();
+    },
+  });
 }
 function setupBubbles() {
   mountTool(
@@ -1506,6 +1662,12 @@ function setupBubbles() {
     }
   });
   draw();
+  registerUndo({
+    controls: settingsControls,
+    restore(state) {
+      draw();
+    },
+  });
 }
 
 function editorApi() {
@@ -1521,6 +1683,9 @@ function editorApi() {
     createTimeline: createAnimationTimeline,
     on,
     signal: toolController.signal,
+    registerUndo,
+    recordEdit,
+    beginUndoEdit,
     addCleanup: (cleanup) => cleanups.push(cleanup),
     toast,
     errorToast,
@@ -1890,6 +2055,13 @@ function setupAnimation(id) {
       }
     });
   });
+  registerUndo({
+    controls: settingsControls,
+    restore(state) {
+      validateChoices();
+      timeline.refresh();
+    },
+  });
 }
 
 function setupPalette() {
@@ -1909,7 +2081,8 @@ function setupPalette() {
   );
   const { canvas, ctx } = previewContext();
   let colors = ["#346495", "#6495bd", "#99b9d4", "#c9def2", "#f3f8ff"],
-    revision = 0;
+    revision = 0,
+    image = null;
   async function copy(value) {
     try {
       await navigator.clipboard.writeText(value.toUpperCase());
@@ -1982,26 +2155,39 @@ function setupPalette() {
     showColors();
     if (colors[0]) setColor(colors[0]);
   }
-  scene(ctx, 0, 0, 1000, 650);
+  function drawImage() {
+    if (!image) {
+      canvas.width = 1000;
+      canvas.height = 650;
+      scene(ctx, 0, 0, 1000, 650);
+      $("#preview-info").textContent = "1000 × 650 · 实时预览";
+      return;
+    }
+    const scale = Math.min(1, 1200 / Math.max(image.naturalWidth, image.naturalHeight));
+    canvas.width = Math.round(image.naturalWidth * scale);
+    canvas.height = Math.round(image.naturalHeight * scale);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    $("#preview-info").textContent =
+      `${image.naturalWidth} × ${image.naturalHeight} · 点击图片取色`;
+  }
+  drawImage();
   showColors();
   $("#canvas").style.cursor = "crosshair";
   on($("#palette-image"), "change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
     const current = ++revision;
     try {
-      const photo = await imageFile(e.target.files[0]);
+      const photo = await imageFile(file);
       if (current !== revision || signal.aborted) return;
-      const scale = Math.min(
-        1,
-        1200 / Math.max(photo.naturalWidth, photo.naturalHeight),
-      );
-      canvas.width = Math.round(photo.naturalWidth * scale);
-      canvas.height = Math.round(photo.naturalHeight * scale);
-      ctx.drawImage(photo, 0, 0, canvas.width, canvas.height);
-      $("#preview-info").textContent =
-        `${photo.naturalWidth} × ${photo.naturalHeight} · 点击图片取色`;
-      extract();
+      recordEdit(() => {
+        image = photo;
+        drawImage();
+        extract();
+      });
     } catch (error) {
-      errorToast(error);
+      if (!signal.aborted && current === revision) errorToast(error);
     }
   });
   on(canvas, "click", (e) => {
@@ -2062,9 +2248,20 @@ function setupPalette() {
       errorToast(error);
     }
   });
+  registerUndo({
+    controls: settingsControls,
+    capture: () => ({ image, colors }),
+    restore(state) {
+      revision++;
+      ({ image, colors } = state);
+      drawImage();
+      showColors();
+      setColor($("#picked-color").value);
+    },
+  });
 }
 
-function openTool(id, sourceCategory = activeCategory) {
+function openTool(id, sourceCategory = activeCategory, undoState) {
   const tool = tools.find((item) => item.id === id);
   if (!tool) return;
   activeCategory =
@@ -2090,6 +2287,10 @@ function openTool(id, sourceCategory = activeCategory) {
     timer: () => setupAnimation("timer"),
     choices: () => setupAnimation("choices"),
   })[id]();
+  const state = undoState || toolStates.get(id);
+  toolStates.delete(id);
+  if (state) undoEditor.restore(state);
+  syncUndoButton();
   renderNavigation();
   window.scrollTo({ top: 0, behavior: "instant" });
   const heading = $(".workspace-heading h1");
@@ -2185,6 +2386,7 @@ document.addEventListener("click", (e) => {
         }),
       );
   }
+  if (action === "undo") undoLastEdit();
   if (action === "help") $("#help-dialog").showModal();
   if (action === "close-help") $("#help-dialog").close();
   if (action === "reset-search") {
@@ -2210,7 +2412,15 @@ compactNavigation.addEventListener("change", () => {
 });
 window.addEventListener("resize", positionNavigationMenu);
 $("#navigation").addEventListener("scroll", positionNavigationMenu);
+document.addEventListener("focusout", () => undoHistory.breakGroup(), true);
 document.addEventListener("keydown", (e) => {
+  if (!e.defaultPrevented && !e.isComposing && !e.shiftKey && !e.altKey &&
+      (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" &&
+      !e.target.closest('[contenteditable="true"], input[type="password"], #search, #chat-paste-content, #smart-option-form') &&
+      !$("dialog[open]") && undoLastEdit()) {
+    e.preventDefault();
+    return;
+  }
   if (e.key === "Escape" && mobileNavigationOpen) {
     e.preventDefault();
     closeNavigationMenu(true);

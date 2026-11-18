@@ -1,8 +1,9 @@
-import { readFile, writeFile, copyFile, mkdir, cp } from "node:fs/promises";
+import { readFile, writeFile, copyFile, mkdir, cp, unlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = new URL("./", import.meta.url);
 const modules = [
+  "undo-history",
   "media",
   "prores-export",
   "video-export",
@@ -68,3 +69,11 @@ await writeFile(new URL("dist/app.bundle.js", root), bundle);
 console.log(
   `Built ${fileURLToPath(new URL("dist/app.bundle.js", root))} (${Buffer.byteLength(bundle)} bytes)`,
 );
+
+const wasmURL = new URL("dist/vendor/ffmpeg/ffmpeg-core.wasm", root);
+const wasmBytes = await readFile(wasmURL);
+const chunkSize = 16 * 1024 * 1024;
+for (let index = 0; index < 2; index++) {
+  await writeFile(new URL(`dist/vendor/ffmpeg/ffmpeg-core.wasm.part${index}`, root), wasmBytes.subarray(index * chunkSize, (index + 1) * chunkSize));
+}
+await unlink(wasmURL);

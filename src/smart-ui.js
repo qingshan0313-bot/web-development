@@ -108,9 +108,12 @@ export function setupSmartEditor(api) {
     toast,
     errorToast,
     runOperation,
+    registerUndo,
+    recordEdit,
     escapeHTML: escape,
   } = api;
   let loading = false;
+  const analysisPrevious = new Map();
   let exporting = false;
   let analysisController = null;
   let analysisId = null;
@@ -579,14 +582,14 @@ export function setupSmartEditor(api) {
     }
     loading = true;
     syncControls();
-    let added = 0;
+    const added = [];
     const failures = [];
     try {
       for (const [index, file] of candidates.entries()) {
         if (signal.aborted) break;
         $("#smart-import-status").textContent =
           `正在读取 ${index + 1} / ${candidates.length} · ${file.name}`;
-        const duplicate = session.assets.some(
+        const duplicate = [...session.assets, ...added].some(
           (asset) =>
             asset.file.name === file.name &&
             asset.file.size === file.size &&
@@ -599,7 +602,7 @@ export function setupSmartEditor(api) {
         try {
           const result = await inspectSmartMedia(file, { signal });
           if (signal.aborted) break;
-          session.assets.push({
+          added.push({
             id: uid(),
             file,
             originalName: file.name,
@@ -612,8 +615,6 @@ export function setupSmartEditor(api) {
             status: "idle",
             summary: "",
           });
-          added++;
-          renderAssets();
         } catch (error) {
           if (error.name === "AbortError" || signal.aborted) break;
           failures.push(`${file.name}：${error.message || "无法读取素材"}`);
@@ -622,9 +623,15 @@ export function setupSmartEditor(api) {
     } finally {
       loading = false;
       if (!signal.aborted) {
+        const additions = added.filter(({ file }) => !session.assets.some((asset) =>
+          asset.file.name === file.name &&
+          asset.file.size === file.size &&
+          asset.file.lastModified === file.lastModified,
+        ));
+        if (additions.length) recordEdit(() => session.assets.push(...additions));
         $("#smart-files").value = "";
         $("#smart-import-status").textContent =
-          `已添加 ${added} 个素材${failures.length ? `，${failures.length} 个未添加。${failures.slice(0, 3).join("；")}` : ""}`;
+          `已添加 ${additions.length} 个素材${failures.length ? `，${failures.length} 个未添加。${failures.slice(0, 3).join("；")}` : ""}`;
         renderAssets();
       }
     }
@@ -701,6 +708,7 @@ export function setupSmartEditor(api) {
         if (controller.signal.aborted) break;
         const asset = getAsset(assetId);
         if (!asset) continue;
+        analysisPrevious.set(assetId, { status: asset.status, summary: asset.summary, analysisId: asset.analysisId });
         setAsset(assetId, {
           ...asset,
           analysisId: runId,
@@ -734,11 +742,11 @@ export function setupSmartEditor(api) {
             throw new DOMException("已取消分析", "AbortError");
           const latest = getAsset(assetId);
           if (latest?.analysisId === runId)
-            setAsset(assetId, {
+            recordEdit(() => setAsset(assetId, {
               ...applySmartFields(latest, result.fields, { source: "ai" }),
               status: "ready",
               summary: result.summary || "分析完成，请检查命名字段后下载。",
-            });
+            }));
           completed++;
         } catch (error) {
           const latest = getAsset(assetId);
@@ -753,18 +761,19 @@ export function setupSmartEditor(api) {
           }
           failed++;
           if (latest?.analysisId === runId)
-            setAsset(assetId, {
+            recordEdit(() => setAsset(assetId, {
               ...latest,
               status: "failed",
               summary:
                 error.message || "分析失败，请检查模型与 API 配置后重试。",
-            });
+            }));
         }
         renderAssets();
       }
       if (!signal.aborted)
         session.summary = `${controller.signal.aborted ? "已停止分析" : "本轮分析完成"}：成功 ${completed} 个${failed ? `，失败 ${failed} 个` : ""}。已完成结果和手动修改均已保留。`;
     } finally {
+      analysisPrevious.clear();
       signal.removeEventListener("abort", abort);
       analysisController = null;
       analysisId = null;
@@ -1117,4 +1126,39 @@ export function setupSmartEditor(api) {
   });
   renderOptions();
   renderAssets();
+  registerUndo({
+    controls: "[data-smart-setting], #smart-template, #smart-separator, #smart-model, #smart-base-url",
+    capture: () => ({
+      assets: session.assets.map((asset) => asset.status === "analyzing"
+        ? { ...asset, ...analysisPrevious.get(asset.id) }
+        : asset),
+      settings: session.settings,
+      options: session.options,
+      config: session.config,
+      summary: session.summary,
+      uniformValues,
+      uniformEnabled: [...uniformEnabled],
+      sequenceEdited,
+      settingsError,
+    }),
+    restore(state) {
+      analysisController?.abort();
+      const { assets, settings, options, config, summary } = state;
+      Object.assign(session, { assets, settings, options, config, summary });
+      save(CONFIG_KEY, config);
+      ({ sequenceEdited, settingsError } = state);
+      Object.assign(uniformValues, state.uniformValues);
+      uniformEnabled.clear();
+      state.uniformEnabled.forEach((key) => uniformEnabled.add(key));
+      for (const control of $$("[data-smart-uniform]", root))
+        control.value = uniformValues[control.dataset.smartUniform];
+      for (const control of $$("[data-smart-uniform-enable]", root))
+        control.checked = uniformEnabled.has(control.dataset.smartUniformEnable);
+      persistSettings();
+      persistUniform();
+      save(OPTIONS_KEY, session.options);
+      renderOptions();
+      renderAssets();
+    },
+  });
 }

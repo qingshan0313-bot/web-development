@@ -57,14 +57,25 @@ export function withProResEncoder(action, { signal, onProgress } = {}) {
     const ffmpeg = new FFmpeg();
     const abort = () => ffmpeg.terminate();
     let timeout;
+    let wasmObjectURL;
     signal?.addEventListener("abort", abort, { once: true });
     try {
       checkAbort();
       onProgress?.(0, "正在加载 ProRes 透明视频编码器…");
       checkAbort();
+      let wasmParts = await Promise.all([0, 1].map(async (index) => {
+        const response = await fetch(new URL(`ffmpeg-core.wasm.part${index}`, base), { signal });
+        return response.ok ? response.arrayBuffer() : null;
+      }));
+      if (wasmParts.some((part) => part === null)) {
+        const response = await fetch(new URL("ffmpeg-core.wasm", base), { signal });
+        if (!response.ok) throw new Error("视频编码组件加载失败，请刷新页面重试。");
+        wasmParts = [await response.arrayBuffer()];
+      }
+      wasmObjectURL = URL.createObjectURL(new Blob(wasmParts, { type: "application/wasm" }));
       const loading = ffmpeg.load({
         coreURL: new URL("ffmpeg-core.js", base).href,
-        wasmURL: new URL("ffmpeg-core.wasm", base).href,
+        wasmURL: wasmObjectURL,
       });
       await waitWithAbort(
         Promise.race([
@@ -106,6 +117,7 @@ export function withProResEncoder(action, { signal, onProgress } = {}) {
       throw error instanceof Error ? error : new Error(message);
     } finally {
       clearTimeout(timeout);
+      if (wasmObjectURL) URL.revokeObjectURL(wasmObjectURL);
       signal?.removeEventListener("abort", abort);
       ffmpeg.terminate();
     }

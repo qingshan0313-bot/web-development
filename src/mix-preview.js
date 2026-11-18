@@ -1,3 +1,4 @@
+import { mixTransitionSpan, mixTransitionAmount, paintMixTransition } from "./mix-model.js";
 import { loadVideo, disposeVideo } from "./video.js";
 
 const roundedTime = (seconds) => Math.round(seconds * 1000000) / 1000000;
@@ -196,6 +197,9 @@ export function createMixPreview({ on, signal, addCleanup, errorToast, icon }) {
     );
     const width = video.videoWidth * ratio,
       height = video.videoHeight * ratio;
+    const amount = mixTransitionAmount(current, firstDuration(), mixTransitionSpan(clips, config));
+    ctx.save();
+    if (config.transition === "blur") ctx.filter = `blur(${amount * 16 * canvas.width / 720}px)`;
     ctx.drawImage(
       video,
       (canvas.width - width) / 2,
@@ -203,6 +207,8 @@ export function createMixPreview({ on, signal, addCleanup, errorToast, icon }) {
       width,
       height,
     );
+    ctx.restore();
+    paintMixTransition(ctx, config.transition, amount, canvas.width, canvas.height);
     canvas.hidden = false;
     $("#mix-preview-empty").hidden = true;
   }

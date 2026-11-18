@@ -59,6 +59,9 @@ export function setupMixEditor(api) {
     toast,
     errorToast,
     runOperation,
+    registerUndo,
+    recordEdit,
+    beginUndoEdit,
     escapeHTML: escape,
   } = api;
   let busy = false,
@@ -87,7 +90,7 @@ export function setupMixEditor(api) {
 
   mountTool(
     "mix",
-    `<div class="mix-settings">${groupMarkup("hooks", "01", "片头素材", "导入多个本地视频，可分别裁剪和调音量")}${groupMarkup("bodies", "02", "成片素材", "每条输出按「片头 → 成片」直接拼接")}
+    `<div class="mix-settings">${groupMarkup("hooks", "01", "片头素材", "导入多个本地视频，可分别裁剪和调音量")}${groupMarkup("bodies", "02", "成片素材", "每条输出按「片头 → 成片」组合，可添加衔接转场")}
     <section class="mix-output-section"><div class="mix-section-heading"><h3><span>03</span>组合与输出</h3></div>
     ${field(
       "组合方式",
@@ -121,6 +124,8 @@ export function setupMixEditor(api) {
         ),
       ),
     )}</div>
+    <div class="mix-field-row">${field("衔接转场", control("transition", select("mix-transition", [["none", "无 · 直接拼接"], ["black", "淡黑"], ["white", "淡白"], ["blur", "柔焦"]], settings().transition)))}${field("转场时长 / 秒", control("transitionDuration", input("mix-transition-duration", settings().transitionDuration, "number", 'min="0.1" max="2" step="0.1"')))}</div>
+    <p class="setting-hint">转场围绕衔接点渐入渐出，保留视频总时长与原声；短素材会自动缩短效果。设置应用于新加入的组合。</p>
     <label id="mix-alpha-control" class="alpha-option" hidden><input id="mix-alpha" data-mix-setting="transparentBackground" type="checkbox" ${settings().transparentBackground ? "checked" : ""}>透明留边（MOV · Alpha）<small>原视频画面保持原样；仅保留原有透明区域并将留边设为透明。</small></label>
     ${field(
       "输出画幅",
@@ -185,6 +190,87 @@ export function setupMixEditor(api) {
     icon,
   });
   const locked = () => busy || loading > 0 || importingRecords;
+  const trimDialog = document.createElement("dialog");
+  trimDialog.className = "mix-trim-dialog";
+  trimDialog.innerHTML = `<div class="mix-trim-heading"><div><span class="eyebrow">QUICK TRIM</span><h3>快速裁切</h3><p id="mix-trim-name"></p></div><button type="button" data-trim="close" aria-label="关闭裁切">✕</button></div>
+    <video id="mix-trim-video" controls playsinline preload="metadata"></video>
+    <div class="mix-trim-markers"><button type="button" data-trim="start">当前位置设为入点</button><button type="button" data-trim="end">当前位置设为出点</button><button type="button" data-trim="preview">播放裁切片段</button></div>
+    <label>入点 <output id="mix-trim-start-label"></output><input id="mix-trim-start" type="range" min="0" step="0.01" aria-label="裁切入点"></label>
+    <label>出点 <output id="mix-trim-end-label"></output><input id="mix-trim-end" type="range" min="0" step="0.01" aria-label="裁切出点"></label>
+    <div class="mix-trim-presets"><span>快速保留</span><button type="button" data-trim="3">前 3 秒</button><button type="button" data-trim="5">前 5 秒</button><button type="button" data-trim="10">前 10 秒</button><button type="button" data-trim="reset">完整素材</button></div>
+    <p id="mix-trim-summary" class="setting-hint" role="status"></p><p class="setting-hint">应用后用于新组合，已有队列保留加入时的裁切。</p>
+    <div class="mix-trim-footer"><button type="button" class="button secondary" data-trim="close">取消</button><button type="button" class="button primary" data-trim="apply">应用裁切</button></div>`;
+  root.append(trimDialog);
+  const trimVideo = trimDialog.querySelector("video");
+  const trimStart = trimDialog.querySelector("#mix-trim-start");
+  const trimEnd = trimDialog.querySelector("#mix-trim-end");
+  let trimming, trimURL, trimPlaying = false;
+  function releaseTrim() {
+    trimVideo.pause(); trimVideo.removeAttribute("src"); trimVideo.load();
+    if (trimURL) URL.revokeObjectURL(trimURL);
+    trimURL = null; trimming = null; trimPlaying = false;
+  }
+  function refreshTrim() {
+    trimDialog.querySelector("#mix-trim-start-label").value = seconds(Number(trimStart.value));
+    trimDialog.querySelector("#mix-trim-end-label").value = seconds(Number(trimEnd.value));
+    trimDialog.querySelector("#mix-trim-summary").textContent = "保留 " + seconds(Number(trimEnd.value) - Number(trimStart.value));
+  }
+  function openTrim(group, assetId) {
+    releaseTrim();
+    const asset = session[group].find(a => a.id === assetId);
+    if (!asset) return;
+    trimming = { group, asset };
+    trimStart.max = trimEnd.max = String(asset.duration);
+    trimStart.value = String(asset.start); trimEnd.value = String(asset.end);
+    trimDialog.querySelector("#mix-trim-name").textContent = asset.name;
+    trimURL = URL.createObjectURL(asset.file); trimVideo.src = trimURL;
+    refreshTrim(); trimDialog.showModal();
+  }
+  on(trimVideo, "loadedmetadata", () => { if (trimming) trimVideo.currentTime = Number(trimStart.value); });
+  on(trimVideo, "timeupdate", () => {
+    if (trimPlaying && trimVideo.currentTime >= Number(trimEnd.value)) {
+      trimVideo.pause(); trimPlaying = false;
+    }
+  });
+  on(trimDialog, "close", releaseTrim);
+  addCleanup(() => { releaseTrim(); trimDialog.remove(); });
+  for (const slider of [trimStart, trimEnd]) on(slider, "input", () => {
+    if (!trimming) return;
+    trimVideo.pause(); trimPlaying = false;
+    const min = 1 / settings().fps;
+    if (Number(trimEnd.value) - Number(trimStart.value) < min) {
+      if (slider === trimStart) trimStart.value = String(Math.max(0, Number(trimEnd.value) - min));
+      else trimEnd.value = String(Math.min(trimming.asset.duration, Number(trimStart.value) + min));
+    }
+    trimVideo.currentTime = Number(slider.value); refreshTrim();
+  });
+  on(trimDialog, "click", async (event) => {
+    const action = event.target.closest("[data-trim]")?.dataset.trim;
+    if (!action) return;
+    if (action === "close") { trimDialog.close(); return; }
+    if (!trimming) return;
+    const asset = trimming.asset;
+    if (action === "start" || action === "end") {
+      const currentTime = trimVideo.currentTime;
+      const start = action === "start" ? currentTime : Number(trimStart.value);
+      const end = action === "end" ? currentTime : Number(trimEnd.value);
+      if (end - start < 1 / settings().fps - 1e-8) { toast("出点需晚于入点，至少保留一帧。"); return; }
+      trimStart.value = String(start); trimEnd.value = String(end);
+    } else if (["3", "5", "10", "reset"].includes(action)) {
+      trimStart.value = "0"; trimEnd.value = String(action === "reset" ? asset.duration : Math.min(asset.duration, Number(action)));
+      trimVideo.pause(); trimVideo.currentTime = 0; trimPlaying = false;
+    } else if (action === "preview") {
+      trimVideo.currentTime = Number(trimStart.value); trimPlaying = true;
+      try { await trimVideo.play(); } catch (error) { trimPlaying = false; errorToast(error); }
+    } else if (action === "apply") {
+      const start = Number(trimStart.value), end = Number(trimEnd.value);
+      if (end - start < 1 / settings().fps - 1e-8 || start < 0 || end > asset.duration) { toast("请至少保留一帧的有效片段。"); return; }
+      asset.start = start; asset.end = end;
+      renderAssets(trimming.group); trimDialog.close(); toast("已应用裁切，请将新组合加入队列。");
+    }
+    refreshTrim();
+  });
+
   const checkActive = (operationSignal) => {
     if (signal.aborted || operationSignal?.aborted) throw abortError();
   };
@@ -213,6 +299,7 @@ export function setupMixEditor(api) {
       all: "所有选中的片头与成片分别配对。",
       ordered: "按素材列表从上到下配对，两组选择数量需相同。",
     }[settings().mode];
+    $("#mix-transition-duration").disabled = locked() || settings().transition === "none";
     $("#mix-download-all").hidden = !session.results.size;
     $("#mix-download-all").textContent =
       `下载已生成的 ${session.results.size} 个文件`;
@@ -231,7 +318,7 @@ export function setupMixEditor(api) {
       ? assets
           .map(
             (asset) =>
-              `<article class="mix-asset" data-mix-asset="${escape(asset.id)}" data-mix-group="${group}"><div class="mix-asset-heading"><input type="checkbox" data-mix-asset-field="selected" aria-label="选择 ${escape(asset.name)}" ${asset.selected ? "checked" : ""}><div class="mix-asset-title"><strong title="${escape(asset.name)}">${escape(asset.name)}</strong><small>${asset.width} × ${asset.height} · ${seconds(asset.duration)}</small></div><button type="button" class="mix-icon-button" data-mix-action="remove-asset" aria-label="移除 ${escape(asset.name)}">${icon("trash")}</button></div><div class="mix-asset-controls">${numberControl("start", "开始 / 秒", asset.start, `min="0" max="${asset.duration}" step="0.01"`)}${numberControl("end", "结束 / 秒", asset.end, `min="0" max="${asset.duration}" step="0.01"`)}${numberControl("volume", "音量 / 倍", asset.volume, 'min="0" max="2" step="0.1"')}</div></article>`,
+              `<article class="mix-asset" data-mix-asset="${escape(asset.id)}" data-mix-group="${group}"><div class="mix-asset-heading"><input type="checkbox" data-mix-asset-field="selected" aria-label="选择 ${escape(asset.name)}" ${asset.selected ? "checked" : ""}><div class="mix-asset-title"><strong title="${escape(asset.name)}">${escape(asset.name)}</strong><small>${asset.width} × ${asset.height} · ${seconds(asset.duration)}</small></div><button type="button" class="mix-icon-button" data-mix-action="remove-asset" aria-label="移除 ${escape(asset.name)}">${icon("trash")}</button></div><button type="button" class="mix-trim-open" data-mix-action="trim-asset">快速裁切 · 预览与标记</button><div class="mix-asset-controls">${numberControl("start", "开始 / 秒", asset.start, `min="0" max="${asset.duration}" step="0.01"`)}${numberControl("end", "结束 / 秒", asset.end, `min="0" max="${asset.duration}" step="0.01"`)}${numberControl("volume", "音量 / 倍", asset.volume, 'min="0" max="2" step="0.1"')}</div></article>`,
           )
           .join("")
       : `<div class="mix-empty">还没有${group === "hooks" ? "片头" : "成片"}素材</div>`;
@@ -254,7 +341,7 @@ export function setupMixEditor(api) {
       ? session.queue
           .map(
             (job, index) =>
-              `<article class="mix-job ${session.previewId === job.id ? "mix-job-active" : ""}" data-mix-job="${escape(job.id)}"><div class="mix-job-top"><input type="checkbox" data-mix-job-select aria-label="选择第 ${index + 1} 个组合" ${job.selected ? "checked" : ""}><button type="button" class="mix-job-preview" data-mix-action="preview" aria-label="预览 ${escape(job.hookName)} 和 ${escape(job.bodyName)}" ${session.previewId === job.id ? 'aria-current="true"' : ""}><span class="mix-job-number">${String(index + 1).padStart(2, "0")}</span><span class="mix-job-names"><strong title="${escape(job.hookName)}">${escape(job.hookName)}</strong><span title="${escape(job.bodyName)}">→ ${escape(job.bodyName)}</span></span></button><span class="mix-status mix-status-${job.status}">${statusLabel[job.status]}</span><button type="button" class="mix-icon-button" data-mix-action="remove-job" aria-label="移除第 ${index + 1} 个组合">${icon("close")}</button></div><div class="mix-job-bottom"><span>${seconds(job.duration)} · ${job.settings.width} × ${job.settings.height} · ${job.settings.fps} fps · ${job.settings.format.toUpperCase()}</span>${session.results.has(job.id) ? `<button type="button" data-mix-action="download-job">${icon("download")}下载文件</button>` : ""}</div>${job.error ? `<p class="mix-job-error" role="status">${escape(job.error)}</p>` : ""}</article>`,
+              `<article class="mix-job ${session.previewId === job.id ? "mix-job-active" : ""}" data-mix-job="${escape(job.id)}"><div class="mix-job-top"><input type="checkbox" data-mix-job-select aria-label="选择第 ${index + 1} 个组合" ${job.selected ? "checked" : ""}><button type="button" class="mix-job-preview" data-mix-action="preview" aria-label="预览 ${escape(job.hookName)} 和 ${escape(job.bodyName)}" ${session.previewId === job.id ? 'aria-current="true"' : ""}><span class="mix-job-number">${String(index + 1).padStart(2, "0")}</span><span class="mix-job-names"><strong title="${escape(job.hookName)}">${escape(job.hookName)}</strong><span title="${escape(job.bodyName)}">→ ${escape(job.bodyName)}</span></span></button><span class="mix-status mix-status-${job.status}">${statusLabel[job.status]}</span><button type="button" class="mix-icon-button" data-mix-action="remove-job" aria-label="移除第 ${index + 1} 个组合">${icon("close")}</button></div><div class="mix-job-bottom"><span>${seconds(job.duration)} · ${job.settings.width} × ${job.settings.height} · ${job.settings.fps} fps · ${job.settings.format.toUpperCase()}${job.settings.transition && job.settings.transition !== "none" ? ` · ${{black:"淡黑",white:"淡白",blur:"柔焦"}[job.settings.transition]} ${job.settings.transitionDuration} 秒` : ""}</span>${session.results.has(job.id) ? `<button type="button" data-mix-action="download-job">${icon("download")}下载文件</button>` : ""}</div>${job.error ? `<p class="mix-job-error" role="status">${escape(job.error)}</p>` : ""}</article>`,
           )
           .join("")
       : '<div class="mix-empty mix-empty-large">导入片头和成片，添加第一组组合。<br>点击队列中的组合可预览衔接效果。</div>';
@@ -331,8 +418,9 @@ export function setupMixEditor(api) {
     loading++;
     imports[group] = [];
     syncControls();
-    let added = 0,
-      duplicates = 0;
+    const added = [];
+    const pendingKeys = [];
+    let duplicates = 0;
     try {
       for (const file of files) {
         checkActive();
@@ -352,11 +440,12 @@ export function setupMixEditor(api) {
           continue;
         }
         loadingKeys[group].add(key);
+        pendingKeys.push(key);
         let video;
         try {
           video = await loadVideo(file, { signal });
           checkActive();
-          session[group].push({
+          added.push({
             id: id(),
             key,
             name: file.name,
@@ -369,7 +458,6 @@ export function setupMixEditor(api) {
             volume: 1,
             selected: true,
           });
-          added++;
         } catch (error) {
           if (signal.aborted || error.name === "AbortError") throw error;
           imports[group].push(
@@ -377,16 +465,19 @@ export function setupMixEditor(api) {
           );
         } finally {
           if (video) disposeVideo(video);
-          loadingKeys[group].delete(key);
         }
       }
-      if (added || duplicates)
+      const additions = added.filter(({ key }) => !session[group].some((asset) => asset.key === key));
+      duplicates += added.length - additions.length;
+      if (additions.length) recordEdit(() => session[group].push(...additions));
+      if (additions.length || duplicates)
         imports[group].unshift(
-          `已添加 ${added} 个素材${duplicates ? `，跳过 ${duplicates} 个重复文件` : ""}。`,
+          `已添加 ${additions.length} 个素材${duplicates ? `，跳过 ${duplicates} 个重复文件` : ""}。`,
         );
     } catch (error) {
       if (!signal.aborted && error.name !== "AbortError") errorToast(error);
     } finally {
+      for (const key of pendingKeys) loadingKeys[group].delete(key);
       loading--;
       if (!signal.aborted) renderAssets(group);
     }
@@ -504,6 +595,7 @@ export function setupMixEditor(api) {
       (job) => job.selected && ["pending", "failed"].includes(job.status),
     );
     if (!jobs.length || locked()) return;
+    const finishEdit = beginUndoEdit();
     withOperation("正在生成混剪视频", async (operationSignal, update) => {
       const completed = [],
         failures = [];
@@ -588,6 +680,7 @@ export function setupMixEditor(api) {
           session.summary = `已生成 ${completed.length} 个视频，下载未完成：${error.message || "请重试下载。"} 可以从队列重新下载。`;
         throw error;
       } finally {
+        finishEdit();
         renderQueue();
       }
     });
@@ -639,7 +732,12 @@ export function setupMixEditor(api) {
       else
         next[element.dataset.mixSetting] =
           element.type === "checkbox" ? element.checked : element.value;
-      session.settings = normalizeMixSettings(next);
+      try { session.settings = normalizeMixSettings(next); }
+      catch (error) {
+        errorToast(error);
+        if (element.dataset.mixSetting) element.value = settings()[element.dataset.mixSetting];
+        syncControls(); return;
+      }
       if (element.dataset.mixSetting) {
         if (element.type === "checkbox")
           element.checked = settings()[element.dataset.mixSetting];
@@ -682,15 +780,17 @@ export function setupMixEditor(api) {
         (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
       );
       const seen = new Set();
-      records = merged
-        .filter((record) => {
-          if (seen.has(record.key)) return false;
-          seen.add(record.key);
-          return true;
-        })
-        .slice(0, 500);
-      saveRecords();
-      renderRecords();
+      recordEdit(() => {
+        records = merged
+          .filter((record) => {
+            if (seen.has(record.key)) return false;
+            seen.add(record.key);
+            return true;
+          })
+          .slice(0, 500);
+        saveRecords();
+        renderRecords();
+      });
       toast(
         `已导入 ${imported.length} 条有效记录${list.length > imported.length ? `，忽略 ${list.length - imported.length} 条无效或超出上限的记录` : ""}。`,
       );
@@ -718,6 +818,7 @@ export function setupMixEditor(api) {
       });
       renderAssets(group);
     }
+    if (action === "trim-asset") openTrim(assetRow.dataset.mixGroup, assetRow.dataset.mixAsset);
     if (action === "remove-asset") {
       const group = assetRow.dataset.mixGroup;
       session[group] = session[group].filter(
@@ -739,7 +840,7 @@ export function setupMixEditor(api) {
       removeJobs(
         session.queue.filter((job) => job.selected).map((job) => job.id),
       );
-    if (action === "export") exportQueue();
+    if (action === "export") queueMicrotask(exportQueue);
     if (action === "download-job") {
       const result = session.results.get(jobId);
       if (result) download(result.blob, result.name);
@@ -788,4 +889,23 @@ export function setupMixEditor(api) {
     session.queue.find((job) => job.id === session.previewId) ||
     session.queue[0];
   if (initialJob) previewJob(initialJob);
+  registerUndo({
+    capture: () => ({ session, records }),
+    restore(state) {
+      trimDialog.close();
+      Object.assign(session, state.session);
+      records = state.records;
+      saveRecords();
+      for (const control of $$("[data-mix-setting]", root)) {
+        const value = settings()[control.dataset.mixSetting];
+        if (control.type === "checkbox") control.checked = value;
+        else control.value = value;
+      }
+      $("#mix-resolution").value = `${settings().width}x${settings().height}`;
+      renderAssets("hooks");
+      renderAssets("bodies");
+      renderRecords();
+      previewJob(session.queue.find((job) => job.id === session.previewId));
+    },
+  });
 }

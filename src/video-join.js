@@ -1,3 +1,4 @@
+import { mixTransitionSpan, mixTransitionAmount, paintMixTransition } from "./mix-model.js";
 import { withProResEncoder } from "./prores-export.js";
 
 const SAMPLE_RATE = 48000;
@@ -19,6 +20,8 @@ async function joinProResVideos(
     fps,
     fit,
     frameCount,
+    transition,
+    transitionDuration,
     transparentBackground,
     backgroundColor,
     signal,
@@ -232,8 +235,24 @@ async function joinProResVideos(
             );
           }
         }
+        const span = mixTransitionSpan(clips, { transition, transitionDuration });
+        if (span > 0) {
+          for (const [index, clip] of prepared.entries()) {
+            const sourceLabel = "v" + index;
+            const targetLabel = "effect" + index;
+            const localSeam = index ? 0 : clip.frames / fps;
+            const factor = index ? `max(0,1-T/${span})` : `max(0,1-(${localSeam}-T)/${span})`;
+            if (transition === "blur") {
+              filters.push(`[${sourceLabel}]split=2[sharp${index}][blurSource${index}]`);
+              filters.push(`[blurSource${index}]gblur=sigma=${16 * width / 720}[blurred${index}]`);
+              filters.push(`[sharp${index}][blurred${index}]blend=all_expr='A*(1-(${factor}))+B*(${factor})'[${targetLabel}]`);
+            } else {
+              filters.push(`[${sourceLabel}]fade=t=${index ? "in" : "out"}:st=${index ? 0 : Math.max(0, localSeam - span)}:d=${span}:color=${transition === "white" ? "white" : "black"}[${targetLabel}]`);
+            }
+          }
+        }
         // Separate concat clocks prevent segment rounding from inserting silence at the audio cut.
-        filters.push("[v0][v1]concat=n=2:v=1:a=0,format=yuva444p10le[v]");
+        filters.push(`${span > 0 ? "[effect0][effect1]" : "[v0][v1]"}concat=n=2:v=1:a=0,format=yuva444p10le[v]`);
         if (hasAudio)
           filters.push(
             `[a0][a1]concat=n=2:v=0:a=1,apad,atrim=duration=${frameCount / fps},asetpts=N/SR/TB[a]`,
@@ -383,6 +402,8 @@ export async function joinVideos(
     fit = "contain",
     backgroundColor = "#000000",
     transparentBackground = true,
+    transition = "none",
+    transitionDuration = 0.4,
     videoBitsPerSecond = 6000000,
     signal,
     onProgress,
@@ -434,6 +455,10 @@ export async function joinVideos(
       throw new Error(`第 ${index + 1} 段音量需在 0–2 之间。`);
     return { file: clip.file, start: clip.start, end: clip.end, volume };
   });
+  if (!["none", "black", "white", "blur"].includes(transition) || !Number.isFinite(transitionDuration) || transitionDuration < 0.1 || transitionDuration > 2)
+    throw new Error("转场设置无效，时长需在 0.1–2 秒之间。");
+  const transitionSpan = mixTransitionSpan(selected, { transition, transitionDuration });
+  const seam = selected[0].end - selected[0].start;
   const totalDuration = selected.reduce(
     (sum, clip) => sum + clip.end - clip.start,
     0,
@@ -452,6 +477,8 @@ export async function joinVideos(
       fps,
       fit,
       frameCount,
+      transition,
+      transitionDuration,
       transparentBackground,
       backgroundColor,
       signal,
@@ -634,6 +661,9 @@ export async function joinVideos(
           const drawHeight = image.height * scale;
           ctx.fillStyle = backgroundColor;
           ctx.fillRect(0, 0, width, height);
+          const amount = mixTransitionAmount(frameIndex / fps, seam, transitionSpan);
+          ctx.save();
+          if (transition === "blur") ctx.filter = `blur(${amount * 16 * width / 720}px)`;
           ctx.drawImage(
             image,
             (width - drawWidth) / 2,
@@ -641,6 +671,8 @@ export async function joinVideos(
             drawWidth,
             drawHeight,
           );
+          ctx.restore();
+          paintMixTransition(ctx, transition, amount, width, height);
           await videoSource.add(frameIndex / fps, 1 / fps);
           frameIndex++;
           report(

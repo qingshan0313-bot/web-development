@@ -1,4 +1,58 @@
 /* Frame Studio · browser-local tools; media library bundled alongside */
+const undo_historyModule = (() => {
+// Copy editable data while retaining references to files, blobs and decoded images.
+function copyUndoState(value) {
+  if (Array.isArray(value)) return value.map(copyUndoState);
+  if (value instanceof Map)
+    return new Map([...value].map(([key, item]) => [key, copyUndoState(item)]));
+  if (value && Object.getPrototypeOf(value) === Object.prototype)
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, copyUndoState(item)]),
+    );
+  return value;
+}
+
+function sameState(left, right) {
+  if (Object.is(left, right)) return true;
+  if (!left || !right || Object.getPrototypeOf(left) !== Object.getPrototypeOf(right))
+    return false;
+  if (left instanceof Map)
+    return left.size === right.size &&
+      [...left].every(([key, value]) => right.has(key) && sameState(value, right.get(key)));
+  if (Array.isArray(left) || Object.getPrototypeOf(left) === Object.prototype) {
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length &&
+      keys.every((key) => Object.hasOwn(right, key) && sameState(left[key], right[key]));
+  }
+  return false;
+}
+
+function createUndoHistory(limit = 50) {
+  const entries = [];
+  let mergeKey = null;
+  return {
+    get latest() { return entries.at(-1); },
+    breakGroup() { mergeKey = null; },
+    record(tool, before, after, key) {
+      if (sameState(before, after)) return;
+      const previous = entries.at(-1);
+      if (key && key === mergeKey && previous?.tool === tool) {
+        if (sameState(previous.before, after)) entries.pop();
+      } else {
+        entries.push({ tool, before });
+        if (entries.length > limit) entries.shift();
+      }
+      mergeKey = key || null;
+    },
+    pop() {
+      mergeKey = null;
+      return entries.pop();
+    },
+  };
+}
+
+return { copyUndoState, createUndoHistory };
+})();
 const mediaModule = (() => {
 /** Browser-local file helpers. No runtime dependencies or network requests. */
 function download(blob, filename = "download") {
@@ -396,14 +450,25 @@ function withProResEncoder(action, { signal, onProgress } = {}) {
     const ffmpeg = new FFmpeg();
     const abort = () => ffmpeg.terminate();
     let timeout;
+    let wasmObjectURL;
     signal?.addEventListener("abort", abort, { once: true });
     try {
       checkAbort();
       onProgress?.(0, "正在加载 ProRes 透明视频编码器…");
       checkAbort();
+      let wasmParts = await Promise.all([0, 1].map(async (index) => {
+        const response = await fetch(new URL(`ffmpeg-core.wasm.part${index}`, base), { signal });
+        return response.ok ? response.arrayBuffer() : null;
+      }));
+      if (wasmParts.some((part) => part === null)) {
+        const response = await fetch(new URL("ffmpeg-core.wasm", base), { signal });
+        if (!response.ok) throw new Error("视频编码组件加载失败，请刷新页面重试。");
+        wasmParts = [await response.arrayBuffer()];
+      }
+      wasmObjectURL = URL.createObjectURL(new Blob(wasmParts, { type: "application/wasm" }));
       const loading = ffmpeg.load({
         coreURL: new URL("ffmpeg-core.js", base).href,
-        wasmURL: new URL("ffmpeg-core.wasm", base).href,
+        wasmURL: wasmObjectURL,
       });
       await waitWithAbort(
         Promise.race([
@@ -445,6 +510,7 @@ function withProResEncoder(action, { signal, onProgress } = {}) {
       throw error instanceof Error ? error : new Error(message);
     } finally {
       clearTimeout(timeout);
+      if (wasmObjectURL) URL.revokeObjectURL(wasmObjectURL);
       signal?.removeEventListener("abort", abort);
       ffmpeg.terminate();
     }
@@ -2010,7 +2076,7 @@ function drawCover(ctx, image, area) {
   ctx.restore();
 }
 
-function drawMessages(ctx, config, frame, area, fontSize, theme) {
+function drawMessages(ctx, config, frame, area, fontSize, theme, language) {
   const lineHeight = Math.round(fontSize * 1.42);
   ctx.font = `400 ${fontSize}px ${FONT}`;
   const messages = (frame.completed || []).map((message) => {
@@ -2039,7 +2105,7 @@ function drawMessages(ctx, config, frame, area, fontSize, theme) {
   ctx.clip();
   for (const item of messages) {
     const right = item.message.side === "right";
-    const x = right ? area.x + area.width - 20 - item.width : area.x + 20;
+    const x = right ? WIDTH - 84 - item.width : 84;
     bounds.push({
       id: item.message.id,
       x,
@@ -2055,6 +2121,25 @@ function drawMessages(ctx, config, frame, area, fontSize, theme) {
         ? config.rightText || "#ffffff"
         : config.leftText || theme.text;
       rounded(ctx, x, y, item.width, item.height, 17, bubble);
+      rounded(
+        ctx,
+        right ? WIDTH - 68 : 20,
+        y,
+        48,
+        48,
+        15,
+        right ? "#e7efff" : theme.avatar,
+      );
+      text(
+        ctx,
+        language === "en" ? (right ? "Me" : "You") : right ? "我" : "TA",
+        right ? WIDTH - 44 : 44,
+        y + 25,
+        language === "en" ? 18 : right ? 21 : 18,
+        right ? "#1265ff" : theme.muted,
+        500,
+        "center",
+      );
       item.lines.forEach((line, index) =>
         text(
           ctx,
@@ -2355,6 +2440,7 @@ function renderChat(ctx, config = {}, frame = {}, assets = {}) {
         muted: "#9aabb7",
         divider: "#363c44",
         leftBubble: "#30363d",
+        avatar: "#333e47",
         key: "#424a56",
         keyShadow: "#151a20",
         hint: "#55616d",
@@ -2369,6 +2455,7 @@ function renderChat(ctx, config = {}, frame = {}, assets = {}) {
         muted: "#7b8792",
         divider: "#dce1e5",
         leftBubble: "#ffffff",
+        avatar: "#e1e6eb",
         key: "#ffffff",
         keyShadow: "#b7c0ca",
         hint: "#ffffff",
@@ -2442,6 +2529,7 @@ function renderChat(ctx, config = {}, frame = {}, assets = {}) {
     chat,
     fontSize,
     theme,
+    language,
   );
   const composerInfo = drawComposer(
     ctx,
@@ -2532,6 +2620,8 @@ function setupChatEditor(api) {
     toast,
     errorToast,
     runOperation,
+    registerUndo,
+    recordEdit,
   } = api;
   let project = normalizeChatProject(CHAT_DEFAULTS);
   let schedule = buildChatSchedule(project);
@@ -2545,14 +2635,12 @@ function setupChatEditor(api) {
     loadRevision = 0,
     loading = false,
     invalid = "",
-    removed = null,
     timeline;
   let stored;
   try {
     stored = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
     if (stored) {
       project = normalizeChatProject(stored.project);
-      // Apply the English keyboard once to older drafts, preserving later choices.
       if (
         (stored.keyboardDefaultsVersion ?? 0) < KEYBOARD_DEFAULTS_VERSION &&
         project.keyboardLayout !== "none"
@@ -2601,7 +2689,7 @@ function setupChatEditor(api) {
       ${field("对话标题", control("title", input("chat-title", project.title, "text", 'maxlength="80"')), "长标题自动缩小，超出部分省略显示")}
       <div class="chat-list-heading"><span id="chat-message-count">${project.messages.length} / 20 条台词</span><button data-chat-action="paste">批量粘贴</button></div>
       <div id="chat-messages" class="chat-messages">${messageMarkup()}</div>
-      <button class="button secondary chat-add" data-chat-action="add">${icon("plus")}添加一句</button><button class="chat-undo" data-chat-action="undo-delete" hidden>撤销刚才的删除</button>
+      <button class="button secondary chat-add" data-chat-action="add">${icon("plus")}添加一句</button>
       <p class="setting-hint chat-script-hint">对方消息直接出现，自己的消息逐字输入。每句可单独设置停留时间，空白台词不会导出。长对话自动滚动。</p>
     </section>
     <section id="chat-panel-screen" class="chat-tab-panel" role="tabpanel" aria-labelledby="chat-tab-screen">
@@ -2830,7 +2918,6 @@ function setupChatEditor(api) {
       `${project.messages.length} / 20 条台词`;
     $('[data-chat-action="add"]', settings).disabled =
       project.messages.length >= 20;
-    $('[data-chat-action="undo-delete"]', settings).hidden = !removed;
     $("#chat-project-summary").textContent =
       `${schedule.messages.length} 条台词 · ${durationText(schedule.duration)}`;
     $("#chat-export-duration").textContent = durationText(schedule.duration);
@@ -2942,12 +3029,14 @@ function setupChatEditor(api) {
         throw new Error("背景图压缩后仍过大，请选择更小的图片。");
       const savedImage = await loadImage(data);
       if (signal.aborted || revision !== loadRevision) return;
-      assets = {
-        backgroundImage: savedImage,
-        backgroundData: data,
-        backgroundName: file.name,
-      };
-      refresh();
+      recordEdit(() => {
+        assets = {
+          backgroundImage: savedImage,
+          backgroundData: data,
+          backgroundName: file.name,
+        };
+        refresh();
+      });
     } finally {
       finishLoad(revision);
     }
@@ -2992,11 +3081,12 @@ function setupChatEditor(api) {
             : "项目背景图";
       }
       if (signal.aborted || revision !== loadRevision) return;
-      project = next;
-      assets = nextAssets;
-      removed = null;
-      renderSettings();
-      timeline.seek(0);
+      recordEdit(() => {
+        project = next;
+        assets = nextAssets;
+        renderSettings();
+        timeline.seek(0);
+      });
       toast("项目已导入，可继续编辑。");
     } finally {
       finishLoad(revision);
@@ -3031,10 +3121,11 @@ function setupChatEditor(api) {
           hold: 1.2,
         };
       });
-      project = normalizeChatProject({ ...project, messages });
-      removed = null;
-      renderMessages();
-      timeline.seek(0);
+      recordEdit(() => {
+        project = normalizeChatProject({ ...project, messages });
+        renderMessages();
+        timeline.seek(0);
+      });
       pasteDialog.close();
       toast(`已导入 ${messages.length} 条台词。`);
     } catch (error) {
@@ -3179,17 +3270,7 @@ function setupChatEditor(api) {
           ?.focus();
       }
       if (action === "delete" && index >= 0) {
-        removed = { message: project.messages[index], index };
         project.messages.splice(index, 1);
-        renderMessages();
-      }
-      if (action === "undo-delete" && removed && project.messages.length < 20) {
-        project.messages.splice(
-          Math.min(removed.index, project.messages.length),
-          0,
-          removed.message,
-        );
-        removed = null;
         renderMessages();
       }
       if (["up", "down"].includes(action) && index >= 0) {
@@ -3272,7 +3353,6 @@ function setupChatEditor(api) {
           backgroundData: "",
           backgroundName: "",
         };
-        removed = null;
         renderSettings();
         timeline.seek(0);
       }
@@ -3333,29 +3413,40 @@ function setupChatEditor(api) {
 
   showTab(tab, false);
   syncControls();
-  if (
-    stored?.backgroundData &&
-    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(
-      stored.backgroundData,
-    ) &&
-    stored.backgroundData.length <= 3500000
-  ) {
+  function loadDraftBackground() {
+    const { backgroundData } = assets;
     const revision = beginLoad();
-    loadImage(stored.backgroundData)
+    loadImage(backgroundData)
       .then((image) => {
         if (signal.aborted || revision !== loadRevision) return;
-        assets = {
-          backgroundImage: image,
-          backgroundData: stored.backgroundData,
-          backgroundName: String(stored.backgroundName || "草稿背景图"),
-        };
+        assets.backgroundImage = image;
         refresh();
       })
       .catch(() => {
-        if (!signal.aborted) toast("草稿背景图无法读取，请重新选择。");
+        if (!signal.aborted && revision === loadRevision)
+          toast("草稿背景图无法读取，请重新选择。");
       })
       .finally(() => finishLoad(revision));
   }
+  if (
+    stored?.backgroundData &&
+    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(stored.backgroundData) &&
+    stored.backgroundData.length <= 3500000
+  ) {
+    assets.backgroundData = stored.backgroundData;
+    assets.backgroundName = String(stored.backgroundName || "草稿背景图");
+    loadDraftBackground();
+  }
+  registerUndo({
+    capture: () => ({ project, assets }),
+    restore(state) {
+      loadRevision++;
+      loading = false;
+      ({ project, assets } = state);
+      renderSettings();
+      if (assets.backgroundData && !assets.backgroundImage) loadDraftBackground();
+    },
+  });
   addCleanup(() => {
     saveDraft();
     clearTimeout(saveTimer);
@@ -3369,6 +3460,8 @@ return { setupChatEditor };
 const mix_modelModule = (() => {
 /** Pure pairing, validation and duplicate detection for browser-local batch mixing. */
 const MIX_DEFAULTS = Object.freeze({
+  transition: "none",
+  transitionDuration: 0.4,
   mode: "single",
   skipCompleted: true,
   width: 720,
@@ -3479,6 +3572,8 @@ function normalizeMixSettings(value = {}) {
       MIX_DEFAULTS.mode,
       "组合方式",
     ),
+    transition: option(value.transition, ["none", "black", "white", "blur"], "none", "转场"),
+    transitionDuration: boundedNumber(value.transitionDuration, "转场时长", 0.4, 0.1, 2),
     skipCompleted: value.skipCompleted ?? MIX_DEFAULTS.skipCompleted,
     width,
     height,
@@ -3608,6 +3703,7 @@ function jobKey(hook, body, settings) {
       [hook.key, hook.start, hook.end, hook.volume],
       [body.key, body.start, body.end, body.volume],
       [
+        ...(settings.transition !== "none" ? [settings.transition, settings.transitionDuration] : []),
         settings.width,
         settings.height,
         settings.fps,
@@ -3766,9 +3862,27 @@ function normalizeMixRecords(value) {
   return result;
 }
 
-return { MIX_DEFAULTS, normalizeMixSettings, mixAssetKey, buildMixQueue, normalizeMixRecords };
+/** Each side uses half the seam duration, capped to the shorter clip. No frames are removed. */
+function mixTransitionSpan(clips, settings) {
+  return settings.transition && settings.transition !== "none"
+    ? Math.min(settings.transitionDuration / 2, ...clips.map(c => (c.end - c.start) / 2)) : 0;
+}
+function mixTransitionAmount(time, seam, span) {
+  return span > 0 ? Math.max(0, 1 - Math.abs(time - seam) / span) : 0;
+}
+function paintMixTransition(ctx, type, amount, width, height) {
+  if (amount <= 0 || !["black", "white"].includes(type)) return;
+  ctx.save();
+  ctx.globalAlpha = amount;
+  ctx.fillStyle = type === "white" ? "#ffffff" : "#000000";
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+return { MIX_DEFAULTS, normalizeMixSettings, mixAssetKey, buildMixQueue, normalizeMixRecords, mixTransitionSpan, mixTransitionAmount, paintMixTransition };
 })();
 const video_joinModule = (() => {
+const { mixTransitionSpan, mixTransitionAmount, paintMixTransition } = mix_modelModule;
 const { withProResEncoder } = prores_exportModule;
 
 const SAMPLE_RATE = 48000;
@@ -3790,6 +3904,8 @@ async function joinProResVideos(
     fps,
     fit,
     frameCount,
+    transition,
+    transitionDuration,
     transparentBackground,
     backgroundColor,
     signal,
@@ -4003,8 +4119,24 @@ async function joinProResVideos(
             );
           }
         }
+        const span = mixTransitionSpan(clips, { transition, transitionDuration });
+        if (span > 0) {
+          for (const [index, clip] of prepared.entries()) {
+            const sourceLabel = "v" + index;
+            const targetLabel = "effect" + index;
+            const localSeam = index ? 0 : clip.frames / fps;
+            const factor = index ? `max(0,1-T/${span})` : `max(0,1-(${localSeam}-T)/${span})`;
+            if (transition === "blur") {
+              filters.push(`[${sourceLabel}]split=2[sharp${index}][blurSource${index}]`);
+              filters.push(`[blurSource${index}]gblur=sigma=${16 * width / 720}[blurred${index}]`);
+              filters.push(`[sharp${index}][blurred${index}]blend=all_expr='A*(1-(${factor}))+B*(${factor})'[${targetLabel}]`);
+            } else {
+              filters.push(`[${sourceLabel}]fade=t=${index ? "in" : "out"}:st=${index ? 0 : Math.max(0, localSeam - span)}:d=${span}:color=${transition === "white" ? "white" : "black"}[${targetLabel}]`);
+            }
+          }
+        }
         // Separate concat clocks prevent segment rounding from inserting silence at the audio cut.
-        filters.push("[v0][v1]concat=n=2:v=1:a=0,format=yuva444p10le[v]");
+        filters.push(`${span > 0 ? "[effect0][effect1]" : "[v0][v1]"}concat=n=2:v=1:a=0,format=yuva444p10le[v]`);
         if (hasAudio)
           filters.push(
             `[a0][a1]concat=n=2:v=0:a=1,apad,atrim=duration=${frameCount / fps},asetpts=N/SR/TB[a]`,
@@ -4154,6 +4286,8 @@ async function joinVideos(
     fit = "contain",
     backgroundColor = "#000000",
     transparentBackground = true,
+    transition = "none",
+    transitionDuration = 0.4,
     videoBitsPerSecond = 6000000,
     signal,
     onProgress,
@@ -4205,6 +4339,10 @@ async function joinVideos(
       throw new Error(`第 ${index + 1} 段音量需在 0–2 之间。`);
     return { file: clip.file, start: clip.start, end: clip.end, volume };
   });
+  if (!["none", "black", "white", "blur"].includes(transition) || !Number.isFinite(transitionDuration) || transitionDuration < 0.1 || transitionDuration > 2)
+    throw new Error("转场设置无效，时长需在 0.1–2 秒之间。");
+  const transitionSpan = mixTransitionSpan(selected, { transition, transitionDuration });
+  const seam = selected[0].end - selected[0].start;
   const totalDuration = selected.reduce(
     (sum, clip) => sum + clip.end - clip.start,
     0,
@@ -4223,6 +4361,8 @@ async function joinVideos(
       fps,
       fit,
       frameCount,
+      transition,
+      transitionDuration,
       transparentBackground,
       backgroundColor,
       signal,
@@ -4405,6 +4545,9 @@ async function joinVideos(
           const drawHeight = image.height * scale;
           ctx.fillStyle = backgroundColor;
           ctx.fillRect(0, 0, width, height);
+          const amount = mixTransitionAmount(frameIndex / fps, seam, transitionSpan);
+          ctx.save();
+          if (transition === "blur") ctx.filter = `blur(${amount * 16 * width / 720}px)`;
           ctx.drawImage(
             image,
             (width - drawWidth) / 2,
@@ -4412,6 +4555,8 @@ async function joinVideos(
             drawWidth,
             drawHeight,
           );
+          ctx.restore();
+          paintMixTransition(ctx, transition, amount, width, height);
           await videoSource.add(frameIndex / fps, 1 / fps);
           frameIndex++;
           report(
@@ -4486,6 +4631,7 @@ async function joinVideos(
 return { joinVideos };
 })();
 const mix_previewModule = (() => {
+const { mixTransitionSpan, mixTransitionAmount, paintMixTransition } = mix_modelModule;
 const { loadVideo, disposeVideo } = videoModule;
 
 const roundedTime = (seconds) => Math.round(seconds * 1000000) / 1000000;
@@ -4684,6 +4830,9 @@ function createMixPreview({ on, signal, addCleanup, errorToast, icon }) {
     );
     const width = video.videoWidth * ratio,
       height = video.videoHeight * ratio;
+    const amount = mixTransitionAmount(current, firstDuration(), mixTransitionSpan(clips, config));
+    ctx.save();
+    if (config.transition === "blur") ctx.filter = `blur(${amount * 16 * canvas.width / 720}px)`;
     ctx.drawImage(
       video,
       (canvas.width - width) / 2,
@@ -4691,6 +4840,8 @@ function createMixPreview({ on, signal, addCleanup, errorToast, icon }) {
       width,
       height,
     );
+    ctx.restore();
+    paintMixTransition(ctx, config.transition, amount, canvas.width, canvas.height);
     canvas.hidden = false;
     $("#mix-preview-empty").hidden = true;
   }
@@ -5038,6 +5189,9 @@ function setupMixEditor(api) {
     toast,
     errorToast,
     runOperation,
+    registerUndo,
+    recordEdit,
+    beginUndoEdit,
     escapeHTML: escape,
   } = api;
   let busy = false,
@@ -5066,7 +5220,7 @@ function setupMixEditor(api) {
 
   mountTool(
     "mix",
-    `<div class="mix-settings">${groupMarkup("hooks", "01", "片头素材", "导入多个本地视频，可分别裁剪和调音量")}${groupMarkup("bodies", "02", "成片素材", "每条输出按「片头 → 成片」直接拼接")}
+    `<div class="mix-settings">${groupMarkup("hooks", "01", "片头素材", "导入多个本地视频，可分别裁剪和调音量")}${groupMarkup("bodies", "02", "成片素材", "每条输出按「片头 → 成片」组合，可添加衔接转场")}
     <section class="mix-output-section"><div class="mix-section-heading"><h3><span>03</span>组合与输出</h3></div>
     ${field(
       "组合方式",
@@ -5100,6 +5254,8 @@ function setupMixEditor(api) {
         ),
       ),
     )}</div>
+    <div class="mix-field-row">${field("衔接转场", control("transition", select("mix-transition", [["none", "无 · 直接拼接"], ["black", "淡黑"], ["white", "淡白"], ["blur", "柔焦"]], settings().transition)))}${field("转场时长 / 秒", control("transitionDuration", input("mix-transition-duration", settings().transitionDuration, "number", 'min="0.1" max="2" step="0.1"')))}</div>
+    <p class="setting-hint">转场围绕衔接点渐入渐出，保留视频总时长与原声；短素材会自动缩短效果。设置应用于新加入的组合。</p>
     <label id="mix-alpha-control" class="alpha-option" hidden><input id="mix-alpha" data-mix-setting="transparentBackground" type="checkbox" ${settings().transparentBackground ? "checked" : ""}>透明留边（MOV · Alpha）<small>原视频画面保持原样；仅保留原有透明区域并将留边设为透明。</small></label>
     ${field(
       "输出画幅",
@@ -5164,6 +5320,87 @@ function setupMixEditor(api) {
     icon,
   });
   const locked = () => busy || loading > 0 || importingRecords;
+  const trimDialog = document.createElement("dialog");
+  trimDialog.className = "mix-trim-dialog";
+  trimDialog.innerHTML = `<div class="mix-trim-heading"><div><span class="eyebrow">QUICK TRIM</span><h3>快速裁切</h3><p id="mix-trim-name"></p></div><button type="button" data-trim="close" aria-label="关闭裁切">✕</button></div>
+    <video id="mix-trim-video" controls playsinline preload="metadata"></video>
+    <div class="mix-trim-markers"><button type="button" data-trim="start">当前位置设为入点</button><button type="button" data-trim="end">当前位置设为出点</button><button type="button" data-trim="preview">播放裁切片段</button></div>
+    <label>入点 <output id="mix-trim-start-label"></output><input id="mix-trim-start" type="range" min="0" step="0.01" aria-label="裁切入点"></label>
+    <label>出点 <output id="mix-trim-end-label"></output><input id="mix-trim-end" type="range" min="0" step="0.01" aria-label="裁切出点"></label>
+    <div class="mix-trim-presets"><span>快速保留</span><button type="button" data-trim="3">前 3 秒</button><button type="button" data-trim="5">前 5 秒</button><button type="button" data-trim="10">前 10 秒</button><button type="button" data-trim="reset">完整素材</button></div>
+    <p id="mix-trim-summary" class="setting-hint" role="status"></p><p class="setting-hint">应用后用于新组合，已有队列保留加入时的裁切。</p>
+    <div class="mix-trim-footer"><button type="button" class="button secondary" data-trim="close">取消</button><button type="button" class="button primary" data-trim="apply">应用裁切</button></div>`;
+  root.append(trimDialog);
+  const trimVideo = trimDialog.querySelector("video");
+  const trimStart = trimDialog.querySelector("#mix-trim-start");
+  const trimEnd = trimDialog.querySelector("#mix-trim-end");
+  let trimming, trimURL, trimPlaying = false;
+  function releaseTrim() {
+    trimVideo.pause(); trimVideo.removeAttribute("src"); trimVideo.load();
+    if (trimURL) URL.revokeObjectURL(trimURL);
+    trimURL = null; trimming = null; trimPlaying = false;
+  }
+  function refreshTrim() {
+    trimDialog.querySelector("#mix-trim-start-label").value = seconds(Number(trimStart.value));
+    trimDialog.querySelector("#mix-trim-end-label").value = seconds(Number(trimEnd.value));
+    trimDialog.querySelector("#mix-trim-summary").textContent = "保留 " + seconds(Number(trimEnd.value) - Number(trimStart.value));
+  }
+  function openTrim(group, assetId) {
+    releaseTrim();
+    const asset = session[group].find(a => a.id === assetId);
+    if (!asset) return;
+    trimming = { group, asset };
+    trimStart.max = trimEnd.max = String(asset.duration);
+    trimStart.value = String(asset.start); trimEnd.value = String(asset.end);
+    trimDialog.querySelector("#mix-trim-name").textContent = asset.name;
+    trimURL = URL.createObjectURL(asset.file); trimVideo.src = trimURL;
+    refreshTrim(); trimDialog.showModal();
+  }
+  on(trimVideo, "loadedmetadata", () => { if (trimming) trimVideo.currentTime = Number(trimStart.value); });
+  on(trimVideo, "timeupdate", () => {
+    if (trimPlaying && trimVideo.currentTime >= Number(trimEnd.value)) {
+      trimVideo.pause(); trimPlaying = false;
+    }
+  });
+  on(trimDialog, "close", releaseTrim);
+  addCleanup(() => { releaseTrim(); trimDialog.remove(); });
+  for (const slider of [trimStart, trimEnd]) on(slider, "input", () => {
+    if (!trimming) return;
+    trimVideo.pause(); trimPlaying = false;
+    const min = 1 / settings().fps;
+    if (Number(trimEnd.value) - Number(trimStart.value) < min) {
+      if (slider === trimStart) trimStart.value = String(Math.max(0, Number(trimEnd.value) - min));
+      else trimEnd.value = String(Math.min(trimming.asset.duration, Number(trimStart.value) + min));
+    }
+    trimVideo.currentTime = Number(slider.value); refreshTrim();
+  });
+  on(trimDialog, "click", async (event) => {
+    const action = event.target.closest("[data-trim]")?.dataset.trim;
+    if (!action) return;
+    if (action === "close") { trimDialog.close(); return; }
+    if (!trimming) return;
+    const asset = trimming.asset;
+    if (action === "start" || action === "end") {
+      const currentTime = trimVideo.currentTime;
+      const start = action === "start" ? currentTime : Number(trimStart.value);
+      const end = action === "end" ? currentTime : Number(trimEnd.value);
+      if (end - start < 1 / settings().fps - 1e-8) { toast("出点需晚于入点，至少保留一帧。"); return; }
+      trimStart.value = String(start); trimEnd.value = String(end);
+    } else if (["3", "5", "10", "reset"].includes(action)) {
+      trimStart.value = "0"; trimEnd.value = String(action === "reset" ? asset.duration : Math.min(asset.duration, Number(action)));
+      trimVideo.pause(); trimVideo.currentTime = 0; trimPlaying = false;
+    } else if (action === "preview") {
+      trimVideo.currentTime = Number(trimStart.value); trimPlaying = true;
+      try { await trimVideo.play(); } catch (error) { trimPlaying = false; errorToast(error); }
+    } else if (action === "apply") {
+      const start = Number(trimStart.value), end = Number(trimEnd.value);
+      if (end - start < 1 / settings().fps - 1e-8 || start < 0 || end > asset.duration) { toast("请至少保留一帧的有效片段。"); return; }
+      asset.start = start; asset.end = end;
+      renderAssets(trimming.group); trimDialog.close(); toast("已应用裁切，请将新组合加入队列。");
+    }
+    refreshTrim();
+  });
+
   const checkActive = (operationSignal) => {
     if (signal.aborted || operationSignal?.aborted) throw abortError();
   };
@@ -5192,6 +5429,7 @@ function setupMixEditor(api) {
       all: "所有选中的片头与成片分别配对。",
       ordered: "按素材列表从上到下配对，两组选择数量需相同。",
     }[settings().mode];
+    $("#mix-transition-duration").disabled = locked() || settings().transition === "none";
     $("#mix-download-all").hidden = !session.results.size;
     $("#mix-download-all").textContent =
       `下载已生成的 ${session.results.size} 个文件`;
@@ -5210,7 +5448,7 @@ function setupMixEditor(api) {
       ? assets
           .map(
             (asset) =>
-              `<article class="mix-asset" data-mix-asset="${escape(asset.id)}" data-mix-group="${group}"><div class="mix-asset-heading"><input type="checkbox" data-mix-asset-field="selected" aria-label="选择 ${escape(asset.name)}" ${asset.selected ? "checked" : ""}><div class="mix-asset-title"><strong title="${escape(asset.name)}">${escape(asset.name)}</strong><small>${asset.width} × ${asset.height} · ${seconds(asset.duration)}</small></div><button type="button" class="mix-icon-button" data-mix-action="remove-asset" aria-label="移除 ${escape(asset.name)}">${icon("trash")}</button></div><div class="mix-asset-controls">${numberControl("start", "开始 / 秒", asset.start, `min="0" max="${asset.duration}" step="0.01"`)}${numberControl("end", "结束 / 秒", asset.end, `min="0" max="${asset.duration}" step="0.01"`)}${numberControl("volume", "音量 / 倍", asset.volume, 'min="0" max="2" step="0.1"')}</div></article>`,
+              `<article class="mix-asset" data-mix-asset="${escape(asset.id)}" data-mix-group="${group}"><div class="mix-asset-heading"><input type="checkbox" data-mix-asset-field="selected" aria-label="选择 ${escape(asset.name)}" ${asset.selected ? "checked" : ""}><div class="mix-asset-title"><strong title="${escape(asset.name)}">${escape(asset.name)}</strong><small>${asset.width} × ${asset.height} · ${seconds(asset.duration)}</small></div><button type="button" class="mix-icon-button" data-mix-action="remove-asset" aria-label="移除 ${escape(asset.name)}">${icon("trash")}</button></div><button type="button" class="mix-trim-open" data-mix-action="trim-asset">快速裁切 · 预览与标记</button><div class="mix-asset-controls">${numberControl("start", "开始 / 秒", asset.start, `min="0" max="${asset.duration}" step="0.01"`)}${numberControl("end", "结束 / 秒", asset.end, `min="0" max="${asset.duration}" step="0.01"`)}${numberControl("volume", "音量 / 倍", asset.volume, 'min="0" max="2" step="0.1"')}</div></article>`,
           )
           .join("")
       : `<div class="mix-empty">还没有${group === "hooks" ? "片头" : "成片"}素材</div>`;
@@ -5233,7 +5471,7 @@ function setupMixEditor(api) {
       ? session.queue
           .map(
             (job, index) =>
-              `<article class="mix-job ${session.previewId === job.id ? "mix-job-active" : ""}" data-mix-job="${escape(job.id)}"><div class="mix-job-top"><input type="checkbox" data-mix-job-select aria-label="选择第 ${index + 1} 个组合" ${job.selected ? "checked" : ""}><button type="button" class="mix-job-preview" data-mix-action="preview" aria-label="预览 ${escape(job.hookName)} 和 ${escape(job.bodyName)}" ${session.previewId === job.id ? 'aria-current="true"' : ""}><span class="mix-job-number">${String(index + 1).padStart(2, "0")}</span><span class="mix-job-names"><strong title="${escape(job.hookName)}">${escape(job.hookName)}</strong><span title="${escape(job.bodyName)}">→ ${escape(job.bodyName)}</span></span></button><span class="mix-status mix-status-${job.status}">${statusLabel[job.status]}</span><button type="button" class="mix-icon-button" data-mix-action="remove-job" aria-label="移除第 ${index + 1} 个组合">${icon("close")}</button></div><div class="mix-job-bottom"><span>${seconds(job.duration)} · ${job.settings.width} × ${job.settings.height} · ${job.settings.fps} fps · ${job.settings.format.toUpperCase()}</span>${session.results.has(job.id) ? `<button type="button" data-mix-action="download-job">${icon("download")}下载文件</button>` : ""}</div>${job.error ? `<p class="mix-job-error" role="status">${escape(job.error)}</p>` : ""}</article>`,
+              `<article class="mix-job ${session.previewId === job.id ? "mix-job-active" : ""}" data-mix-job="${escape(job.id)}"><div class="mix-job-top"><input type="checkbox" data-mix-job-select aria-label="选择第 ${index + 1} 个组合" ${job.selected ? "checked" : ""}><button type="button" class="mix-job-preview" data-mix-action="preview" aria-label="预览 ${escape(job.hookName)} 和 ${escape(job.bodyName)}" ${session.previewId === job.id ? 'aria-current="true"' : ""}><span class="mix-job-number">${String(index + 1).padStart(2, "0")}</span><span class="mix-job-names"><strong title="${escape(job.hookName)}">${escape(job.hookName)}</strong><span title="${escape(job.bodyName)}">→ ${escape(job.bodyName)}</span></span></button><span class="mix-status mix-status-${job.status}">${statusLabel[job.status]}</span><button type="button" class="mix-icon-button" data-mix-action="remove-job" aria-label="移除第 ${index + 1} 个组合">${icon("close")}</button></div><div class="mix-job-bottom"><span>${seconds(job.duration)} · ${job.settings.width} × ${job.settings.height} · ${job.settings.fps} fps · ${job.settings.format.toUpperCase()}${job.settings.transition && job.settings.transition !== "none" ? ` · ${{black:"淡黑",white:"淡白",blur:"柔焦"}[job.settings.transition]} ${job.settings.transitionDuration} 秒` : ""}</span>${session.results.has(job.id) ? `<button type="button" data-mix-action="download-job">${icon("download")}下载文件</button>` : ""}</div>${job.error ? `<p class="mix-job-error" role="status">${escape(job.error)}</p>` : ""}</article>`,
           )
           .join("")
       : '<div class="mix-empty mix-empty-large">导入片头和成片，添加第一组组合。<br>点击队列中的组合可预览衔接效果。</div>';
@@ -5310,8 +5548,9 @@ function setupMixEditor(api) {
     loading++;
     imports[group] = [];
     syncControls();
-    let added = 0,
-      duplicates = 0;
+    const added = [];
+    const pendingKeys = [];
+    let duplicates = 0;
     try {
       for (const file of files) {
         checkActive();
@@ -5331,11 +5570,12 @@ function setupMixEditor(api) {
           continue;
         }
         loadingKeys[group].add(key);
+        pendingKeys.push(key);
         let video;
         try {
           video = await loadVideo(file, { signal });
           checkActive();
-          session[group].push({
+          added.push({
             id: id(),
             key,
             name: file.name,
@@ -5348,7 +5588,6 @@ function setupMixEditor(api) {
             volume: 1,
             selected: true,
           });
-          added++;
         } catch (error) {
           if (signal.aborted || error.name === "AbortError") throw error;
           imports[group].push(
@@ -5356,16 +5595,19 @@ function setupMixEditor(api) {
           );
         } finally {
           if (video) disposeVideo(video);
-          loadingKeys[group].delete(key);
         }
       }
-      if (added || duplicates)
+      const additions = added.filter(({ key }) => !session[group].some((asset) => asset.key === key));
+      duplicates += added.length - additions.length;
+      if (additions.length) recordEdit(() => session[group].push(...additions));
+      if (additions.length || duplicates)
         imports[group].unshift(
-          `已添加 ${added} 个素材${duplicates ? `，跳过 ${duplicates} 个重复文件` : ""}。`,
+          `已添加 ${additions.length} 个素材${duplicates ? `，跳过 ${duplicates} 个重复文件` : ""}。`,
         );
     } catch (error) {
       if (!signal.aborted && error.name !== "AbortError") errorToast(error);
     } finally {
+      for (const key of pendingKeys) loadingKeys[group].delete(key);
       loading--;
       if (!signal.aborted) renderAssets(group);
     }
@@ -5483,6 +5725,7 @@ function setupMixEditor(api) {
       (job) => job.selected && ["pending", "failed"].includes(job.status),
     );
     if (!jobs.length || locked()) return;
+    const finishEdit = beginUndoEdit();
     withOperation("正在生成混剪视频", async (operationSignal, update) => {
       const completed = [],
         failures = [];
@@ -5567,6 +5810,7 @@ function setupMixEditor(api) {
           session.summary = `已生成 ${completed.length} 个视频，下载未完成：${error.message || "请重试下载。"} 可以从队列重新下载。`;
         throw error;
       } finally {
+        finishEdit();
         renderQueue();
       }
     });
@@ -5618,7 +5862,12 @@ function setupMixEditor(api) {
       else
         next[element.dataset.mixSetting] =
           element.type === "checkbox" ? element.checked : element.value;
-      session.settings = normalizeMixSettings(next);
+      try { session.settings = normalizeMixSettings(next); }
+      catch (error) {
+        errorToast(error);
+        if (element.dataset.mixSetting) element.value = settings()[element.dataset.mixSetting];
+        syncControls(); return;
+      }
       if (element.dataset.mixSetting) {
         if (element.type === "checkbox")
           element.checked = settings()[element.dataset.mixSetting];
@@ -5661,15 +5910,17 @@ function setupMixEditor(api) {
         (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
       );
       const seen = new Set();
-      records = merged
-        .filter((record) => {
-          if (seen.has(record.key)) return false;
-          seen.add(record.key);
-          return true;
-        })
-        .slice(0, 500);
-      saveRecords();
-      renderRecords();
+      recordEdit(() => {
+        records = merged
+          .filter((record) => {
+            if (seen.has(record.key)) return false;
+            seen.add(record.key);
+            return true;
+          })
+          .slice(0, 500);
+        saveRecords();
+        renderRecords();
+      });
       toast(
         `已导入 ${imported.length} 条有效记录${list.length > imported.length ? `，忽略 ${list.length - imported.length} 条无效或超出上限的记录` : ""}。`,
       );
@@ -5697,6 +5948,7 @@ function setupMixEditor(api) {
       });
       renderAssets(group);
     }
+    if (action === "trim-asset") openTrim(assetRow.dataset.mixGroup, assetRow.dataset.mixAsset);
     if (action === "remove-asset") {
       const group = assetRow.dataset.mixGroup;
       session[group] = session[group].filter(
@@ -5718,7 +5970,7 @@ function setupMixEditor(api) {
       removeJobs(
         session.queue.filter((job) => job.selected).map((job) => job.id),
       );
-    if (action === "export") exportQueue();
+    if (action === "export") queueMicrotask(exportQueue);
     if (action === "download-job") {
       const result = session.results.get(jobId);
       if (result) download(result.blob, result.name);
@@ -5767,6 +6019,25 @@ function setupMixEditor(api) {
     session.queue.find((job) => job.id === session.previewId) ||
     session.queue[0];
   if (initialJob) previewJob(initialJob);
+  registerUndo({
+    capture: () => ({ session, records }),
+    restore(state) {
+      trimDialog.close();
+      Object.assign(session, state.session);
+      records = state.records;
+      saveRecords();
+      for (const control of $$("[data-mix-setting]", root)) {
+        const value = settings()[control.dataset.mixSetting];
+        if (control.type === "checkbox") control.checked = value;
+        else control.value = value;
+      }
+      $("#mix-resolution").value = `${settings().width}x${settings().height}`;
+      renderAssets("hooks");
+      renderAssets("bodies");
+      renderRecords();
+      previewJob(session.queue.find((job) => job.id === session.previewId));
+    },
+  });
 }
 
 return { setupMixEditor };
@@ -7131,9 +7402,12 @@ function setupSmartEditor(api) {
     toast,
     errorToast,
     runOperation,
+    registerUndo,
+    recordEdit,
     escapeHTML: escape,
   } = api;
   let loading = false;
+  const analysisPrevious = new Map();
   let exporting = false;
   let analysisController = null;
   let analysisId = null;
@@ -7602,14 +7876,14 @@ function setupSmartEditor(api) {
     }
     loading = true;
     syncControls();
-    let added = 0;
+    const added = [];
     const failures = [];
     try {
       for (const [index, file] of candidates.entries()) {
         if (signal.aborted) break;
         $("#smart-import-status").textContent =
           `正在读取 ${index + 1} / ${candidates.length} · ${file.name}`;
-        const duplicate = session.assets.some(
+        const duplicate = [...session.assets, ...added].some(
           (asset) =>
             asset.file.name === file.name &&
             asset.file.size === file.size &&
@@ -7622,7 +7896,7 @@ function setupSmartEditor(api) {
         try {
           const result = await inspectSmartMedia(file, { signal });
           if (signal.aborted) break;
-          session.assets.push({
+          added.push({
             id: uid(),
             file,
             originalName: file.name,
@@ -7635,8 +7909,6 @@ function setupSmartEditor(api) {
             status: "idle",
             summary: "",
           });
-          added++;
-          renderAssets();
         } catch (error) {
           if (error.name === "AbortError" || signal.aborted) break;
           failures.push(`${file.name}：${error.message || "无法读取素材"}`);
@@ -7645,9 +7917,15 @@ function setupSmartEditor(api) {
     } finally {
       loading = false;
       if (!signal.aborted) {
+        const additions = added.filter(({ file }) => !session.assets.some((asset) =>
+          asset.file.name === file.name &&
+          asset.file.size === file.size &&
+          asset.file.lastModified === file.lastModified,
+        ));
+        if (additions.length) recordEdit(() => session.assets.push(...additions));
         $("#smart-files").value = "";
         $("#smart-import-status").textContent =
-          `已添加 ${added} 个素材${failures.length ? `，${failures.length} 个未添加。${failures.slice(0, 3).join("；")}` : ""}`;
+          `已添加 ${additions.length} 个素材${failures.length ? `，${failures.length} 个未添加。${failures.slice(0, 3).join("；")}` : ""}`;
         renderAssets();
       }
     }
@@ -7724,6 +8002,7 @@ function setupSmartEditor(api) {
         if (controller.signal.aborted) break;
         const asset = getAsset(assetId);
         if (!asset) continue;
+        analysisPrevious.set(assetId, { status: asset.status, summary: asset.summary, analysisId: asset.analysisId });
         setAsset(assetId, {
           ...asset,
           analysisId: runId,
@@ -7757,11 +8036,11 @@ function setupSmartEditor(api) {
             throw new DOMException("已取消分析", "AbortError");
           const latest = getAsset(assetId);
           if (latest?.analysisId === runId)
-            setAsset(assetId, {
+            recordEdit(() => setAsset(assetId, {
               ...applySmartFields(latest, result.fields, { source: "ai" }),
               status: "ready",
               summary: result.summary || "分析完成，请检查命名字段后下载。",
-            });
+            }));
           completed++;
         } catch (error) {
           const latest = getAsset(assetId);
@@ -7776,18 +8055,19 @@ function setupSmartEditor(api) {
           }
           failed++;
           if (latest?.analysisId === runId)
-            setAsset(assetId, {
+            recordEdit(() => setAsset(assetId, {
               ...latest,
               status: "failed",
               summary:
                 error.message || "分析失败，请检查模型与 API 配置后重试。",
-            });
+            }));
         }
         renderAssets();
       }
       if (!signal.aborted)
         session.summary = `${controller.signal.aborted ? "已停止分析" : "本轮分析完成"}：成功 ${completed} 个${failed ? `，失败 ${failed} 个` : ""}。已完成结果和手动修改均已保留。`;
     } finally {
+      analysisPrevious.clear();
       signal.removeEventListener("abort", abort);
       analysisController = null;
       analysisId = null;
@@ -8140,11 +8420,47 @@ function setupSmartEditor(api) {
   });
   renderOptions();
   renderAssets();
+  registerUndo({
+    controls: "[data-smart-setting], #smart-template, #smart-separator, #smart-model, #smart-base-url",
+    capture: () => ({
+      assets: session.assets.map((asset) => asset.status === "analyzing"
+        ? { ...asset, ...analysisPrevious.get(asset.id) }
+        : asset),
+      settings: session.settings,
+      options: session.options,
+      config: session.config,
+      summary: session.summary,
+      uniformValues,
+      uniformEnabled: [...uniformEnabled],
+      sequenceEdited,
+      settingsError,
+    }),
+    restore(state) {
+      analysisController?.abort();
+      const { assets, settings, options, config, summary } = state;
+      Object.assign(session, { assets, settings, options, config, summary });
+      save(CONFIG_KEY, config);
+      ({ sequenceEdited, settingsError } = state);
+      Object.assign(uniformValues, state.uniformValues);
+      uniformEnabled.clear();
+      state.uniformEnabled.forEach((key) => uniformEnabled.add(key));
+      for (const control of $$("[data-smart-uniform]", root))
+        control.value = uniformValues[control.dataset.smartUniform];
+      for (const control of $$("[data-smart-uniform-enable]", root))
+        control.checked = uniformEnabled.has(control.dataset.smartUniformEnable);
+      persistSettings();
+      persistUniform();
+      save(OPTIONS_KEY, session.options);
+      renderOptions();
+      renderAssets();
+    },
+  });
 }
 
 return { setupSmartEditor };
 })();
 (() => {
+const { copyUndoState, createUndoHistory } = undo_historyModule;
 const { download, zipFiles, loadImage, canvasBlob } = mediaModule;
 const {
   loadVideo,
@@ -8533,8 +8849,89 @@ function renderTools() {
       : "试试其他关键词，或切换分类。";
   renderNavigation();
 }
+const undoHistory = createUndoHistory();
+const toolStates = new Map();
+let undoEditor = null;
+let recordingUndo = false;
+
+function syncUndoButton() {
+  const button = $("#undo");
+  const latest = undoHistory.latest;
+  button.disabled = !latest || Boolean(operationController);
+  button.title = latest
+    ? `撤销${tools.find(({ id }) => id === latest.tool).name}的上一步（Ctrl / ⌘ + Z）`
+    : "撤销（Ctrl / ⌘ + Z）";
+}
+
+const settingsControls =
+  "#settings input[id]:not([type=file]):not([type=password]), #settings textarea[id], #settings select[id]";
+
+function registerUndo({ capture = () => null, restore = () => {}, controls }) {
+  const fields = controls ? $$(controls) : [];
+  const readFields = () => fields.map((field) =>
+    field.type === "checkbox" ? field.checked : field.value,
+  );
+  let previousFields = readFields();
+  undoEditor = {
+    capture: () => ({ model: copyUndoState(capture()), fields: readFields() }),
+    before: () => ({ model: copyUndoState(capture()), fields: previousFields }),
+    refreshFields: () => { previousFields = readFields(); },
+    restore(state) {
+      fields.forEach((field, index) => {
+        if (field.type === "checkbox") field.checked = state.fields[index];
+        else field.value = state.fields[index];
+      });
+      restore(copyUndoState(state.model));
+      previousFields = readFields();
+    },
+  };
+}
+
+function recordEdit(edit, key) {
+  const editor = undoEditor;
+  if (!editor || recordingUndo) return edit();
+  const tool = currentTool;
+  const before = editor.before();
+  recordingUndo = true;
+  try {
+    return edit();
+  } finally {
+    recordingUndo = false;
+    if (undoEditor === editor) {
+      undoHistory.record(tool, before, editor.capture(), key);
+      editor.refreshFields();
+      syncUndoButton();
+    }
+  }
+}
+
+// Used when a modal operation owns the editor until its asynchronous work finishes.
+function beginUndoEdit() {
+  const editor = undoEditor;
+  const tool = currentTool;
+  const before = editor.capture();
+  return () => {
+    if (undoEditor !== editor) return;
+    undoHistory.record(tool, before, editor.capture());
+    syncUndoButton();
+  };
+}
+
+function undoLastEdit() {
+  if (operationController || !undoHistory.latest) return false;
+  const { tool, before } = undoHistory.pop();
+  if (currentTool !== tool) openTool(tool, activeCategory, before);
+  else undoEditor.restore(before);
+  syncUndoButton();
+  toast(`已撤销${tools.find(({ id }) => id === tool).name}的上一步。`);
+  return true;
+}
+
 function closeWorkspace() {
   mobileNavigationOpen = false;
+  if (currentTool && undoEditor) toolStates.set(currentTool, undoEditor.capture());
+  undoEditor = null;
+  undoHistory.breakGroup();
   toolController?.abort();
   cleanups.forEach((fn) => {
     try {
@@ -8549,7 +8946,17 @@ function closeWorkspace() {
   renderTools();
 }
 function on(element, event, handler) {
-  element.addEventListener(event, handler, { signal: toolController.signal });
+  const signal = toolController.signal;
+  const track = ["input", "change", "click", "submit", "focusout"].includes(event)
+    && $("#workspace").contains(element);
+  element.addEventListener(event, track ? (e) => {
+    const key = (e.type === "input" || e.type === "change") &&
+      e.target.matches('textarea,input:not([type="checkbox"]):not([type="radio"])')
+      ? e.target : null;
+    const result = recordEdit(() => handler(e), key);
+    if (e.type === "change") undoHistory.breakGroup();
+    return result;
+  } : handler, { signal });
 }
 function field(label, control, hint = "") {
   return `<label class="field"><span>${label}${hint ? `<small>${hint}</small>` : ""}</span>${control}</label>`;
@@ -8884,6 +9291,7 @@ function errorToast(error) {
 async function runOperation(title, action) {
   if (operationController) return;
   operationController = new AbortController();
+  syncUndoButton();
   const overlay = document.createElement("div");
   overlay.className = "processing-overlay";
   overlay.setAttribute("role", "dialog");
@@ -8910,6 +9318,7 @@ async function runOperation(title, action) {
     else errorToast(error);
   } finally {
     operationController = null;
+    syncUndoButton();
     overlay.remove();
     $(".app-shell").inert = oldInert;
     $("#export")?.focus();
@@ -8969,6 +9378,7 @@ function setupCompose() {
     selected = 0,
     loadRevision = 0,
     backgroundRevision = 0,
+    backgroundName = "",
     frame = 0;
   let completedResults = [],
     batchFailures = [],
@@ -9107,17 +9517,27 @@ function setupCompose() {
       showVideo(Math.min(selected, Math.max(0, files.length - 1)));
     }
   });
+  function renderBackground() {
+    const status = $("#background-status");
+    status.hidden = !background;
+    status.innerHTML = background
+      ? `已添加：${escapeHTML(backgroundName)} <button id="remove-background" class="text-link">移除</button>`
+      : "";
+  }
   on($("#background"), "change", async (e) => {
     const revision = ++backgroundRevision;
     const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
     try {
       const image = await imageFile(file);
       if (signal.aborted || revision !== backgroundRevision) return;
-      background = image;
-      $("#background-status").hidden = false;
-      $("#background-status").innerHTML =
-        `已添加：${escapeHTML(file.name)} <button id="remove-background" class="text-link">移除</button>`;
-      draw();
+      recordEdit(() => {
+        background = image;
+        backgroundName = file.name;
+        renderBackground();
+        draw();
+      });
     } catch (error) {
       if (!signal.aborted && revision === backgroundRevision) errorToast(error);
     }
@@ -9128,7 +9548,8 @@ function setupCompose() {
     backgroundRevision++;
     background = null;
     $("#background").value = "";
-    $("#background-status").hidden = true;
+    backgroundName = "";
+    renderBackground();
     draw();
   });
   on($("#batch-report"), "click", (e) => {
@@ -9225,6 +9646,21 @@ function setupCompose() {
   });
   updateFiles();
   draw();
+  registerUndo({
+    controls: settingsControls,
+    capture: () => ({ files, selected, background, backgroundName }),
+    restore(state) {
+      const reload = files.length !== state.files.length ||
+        files.some((file, index) => file !== state.files[index]) ||
+        selected !== state.selected;
+      ({ files, selected, background, backgroundName } = state);
+      backgroundRevision++;
+      $("#background").value = "";
+      renderBackground();
+      if (reload) showVideo(selected);
+      else draw();
+    },
+  });
 }
 
 function setupRename() {
@@ -9341,6 +9777,14 @@ function setupRename() {
     });
   });
   render();
+  registerUndo({
+    controls: settingsControls,
+    capture: () => ({ files, names }),
+    restore(state) {
+      ({ files, names } = state);
+      render();
+    },
+  });
 }
 
 function formatTime(seconds, srt = false) {
@@ -9393,7 +9837,7 @@ function setupSubtitles() {
       exportButton("导出 SRT 字幕"),
     '<div id="subtitle-list" class="subtitle-list"></div><button id="add-subtitle" class="button secondary add-subtitle">添加一条字幕</button><div class="preview-caption"><span id="subtitle-info"></span><span>精确至毫秒</span></div>',
   );
-  let rows = [];
+  let rows = [], importRevision = 0;
   function render() {
     $("#subtitle-list").innerHTML = rows
       .map(
@@ -9443,11 +9887,13 @@ function setupSubtitles() {
   on($("#srt-file"), "change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    e.target.value = "";
+    const revision = ++importRevision;
     try {
       const text = (await file.text())
         .replace(/^\uFEFF/, "")
         .replace(/\r/g, "");
-      if (signal.aborted) return;
+      if (signal.aborted || revision !== importRevision) return;
       const parsed = text
         .split(/\n\s*\n/)
         .filter((s) => s.trim())
@@ -9472,8 +9918,10 @@ function setupSubtitles() {
           };
         });
       if (!parsed.length) throw new Error("字幕文件为空。");
-      rows = parsed;
-      render();
+      recordEdit(() => {
+        rows = parsed;
+        render();
+      });
       toast(`已导入 ${rows.length} 条字幕。`);
     } catch (error) {
       errorToast(error);
@@ -9511,6 +9959,15 @@ function setupSubtitles() {
     toast("SRT 字幕已导出。");
   });
   generate();
+  registerUndo({
+    controls: settingsControls,
+    capture: () => (rows),
+    restore(state) {
+      importRevision++;
+      rows = state;
+      render();
+    },
+  });
 }
 
 function setupPolaroid() {
@@ -9555,12 +10012,17 @@ function setupPolaroid() {
     ctx.globalAlpha = 1;
   }
   on($("#photo"), "change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
     const current = ++revision;
     try {
-      const result = await imageFile(e.target.files[0]);
+      const result = await imageFile(file);
       if (current !== revision || signal.aborted) return;
-      photo = result;
-      draw();
+      recordEdit(() => {
+        photo = result;
+        draw();
+      });
     } catch (error) {
       errorToast(error);
     }
@@ -9575,6 +10037,15 @@ function setupPolaroid() {
     }
   });
   draw();
+  registerUndo({
+    controls: settingsControls,
+    capture: () => (photo),
+    restore(state) {
+      revision++;
+      photo = state;
+      draw();
+    },
+  });
 }
 function setupBubbles() {
   mountTool(
@@ -9653,6 +10124,12 @@ function setupBubbles() {
     }
   });
   draw();
+  registerUndo({
+    controls: settingsControls,
+    restore(state) {
+      draw();
+    },
+  });
 }
 
 function editorApi() {
@@ -9668,6 +10145,9 @@ function editorApi() {
     createTimeline: createAnimationTimeline,
     on,
     signal: toolController.signal,
+    registerUndo,
+    recordEdit,
+    beginUndoEdit,
     addCleanup: (cleanup) => cleanups.push(cleanup),
     toast,
     errorToast,
@@ -10037,6 +10517,13 @@ function setupAnimation(id) {
       }
     });
   });
+  registerUndo({
+    controls: settingsControls,
+    restore(state) {
+      validateChoices();
+      timeline.refresh();
+    },
+  });
 }
 
 function setupPalette() {
@@ -10056,7 +10543,8 @@ function setupPalette() {
   );
   const { canvas, ctx } = previewContext();
   let colors = ["#346495", "#6495bd", "#99b9d4", "#c9def2", "#f3f8ff"],
-    revision = 0;
+    revision = 0,
+    image = null;
   async function copy(value) {
     try {
       await navigator.clipboard.writeText(value.toUpperCase());
@@ -10129,26 +10617,39 @@ function setupPalette() {
     showColors();
     if (colors[0]) setColor(colors[0]);
   }
-  scene(ctx, 0, 0, 1000, 650);
+  function drawImage() {
+    if (!image) {
+      canvas.width = 1000;
+      canvas.height = 650;
+      scene(ctx, 0, 0, 1000, 650);
+      $("#preview-info").textContent = "1000 × 650 · 实时预览";
+      return;
+    }
+    const scale = Math.min(1, 1200 / Math.max(image.naturalWidth, image.naturalHeight));
+    canvas.width = Math.round(image.naturalWidth * scale);
+    canvas.height = Math.round(image.naturalHeight * scale);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    $("#preview-info").textContent =
+      `${image.naturalWidth} × ${image.naturalHeight} · 点击图片取色`;
+  }
+  drawImage();
   showColors();
   $("#canvas").style.cursor = "crosshair";
   on($("#palette-image"), "change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
     const current = ++revision;
     try {
-      const photo = await imageFile(e.target.files[0]);
+      const photo = await imageFile(file);
       if (current !== revision || signal.aborted) return;
-      const scale = Math.min(
-        1,
-        1200 / Math.max(photo.naturalWidth, photo.naturalHeight),
-      );
-      canvas.width = Math.round(photo.naturalWidth * scale);
-      canvas.height = Math.round(photo.naturalHeight * scale);
-      ctx.drawImage(photo, 0, 0, canvas.width, canvas.height);
-      $("#preview-info").textContent =
-        `${photo.naturalWidth} × ${photo.naturalHeight} · 点击图片取色`;
-      extract();
+      recordEdit(() => {
+        image = photo;
+        drawImage();
+        extract();
+      });
     } catch (error) {
-      errorToast(error);
+      if (!signal.aborted && current === revision) errorToast(error);
     }
   });
   on(canvas, "click", (e) => {
@@ -10209,9 +10710,20 @@ function setupPalette() {
       errorToast(error);
     }
   });
+  registerUndo({
+    controls: settingsControls,
+    capture: () => ({ image, colors }),
+    restore(state) {
+      revision++;
+      ({ image, colors } = state);
+      drawImage();
+      showColors();
+      setColor($("#picked-color").value);
+    },
+  });
 }
 
-function openTool(id, sourceCategory = activeCategory) {
+function openTool(id, sourceCategory = activeCategory, undoState) {
   const tool = tools.find((item) => item.id === id);
   if (!tool) return;
   activeCategory =
@@ -10237,6 +10749,10 @@ function openTool(id, sourceCategory = activeCategory) {
     timer: () => setupAnimation("timer"),
     choices: () => setupAnimation("choices"),
   })[id]();
+  const state = undoState || toolStates.get(id);
+  toolStates.delete(id);
+  if (state) undoEditor.restore(state);
+  syncUndoButton();
   renderNavigation();
   window.scrollTo({ top: 0, behavior: "instant" });
   const heading = $(".workspace-heading h1");
@@ -10332,6 +10848,7 @@ document.addEventListener("click", (e) => {
         }),
       );
   }
+  if (action === "undo") undoLastEdit();
   if (action === "help") $("#help-dialog").showModal();
   if (action === "close-help") $("#help-dialog").close();
   if (action === "reset-search") {
@@ -10357,7 +10874,15 @@ compactNavigation.addEventListener("change", () => {
 });
 window.addEventListener("resize", positionNavigationMenu);
 $("#navigation").addEventListener("scroll", positionNavigationMenu);
+document.addEventListener("focusout", () => undoHistory.breakGroup(), true);
 document.addEventListener("keydown", (e) => {
+  if (!e.defaultPrevented && !e.isComposing && !e.shiftKey && !e.altKey &&
+      (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" &&
+      !e.target.closest('[contenteditable="true"], input[type="password"], #search, #chat-paste-content, #smart-option-form') &&
+      !$("dialog[open]") && undoLastEdit()) {
+    e.preventDefault();
+    return;
+  }
   if (e.key === "Escape" && mobileNavigationOpen) {
     e.preventDefault();
     closeNavigationMenu(true);
