@@ -1,4 +1,4 @@
-const DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+export const DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/plan/v3";
 const FIELD_IDS = [
   "country",
   "language",
@@ -19,7 +19,7 @@ const FIELD_IDS = [
 ];
 const AI_FIELDS = new Set(
   FIELD_IDS.filter(
-    (id) => !["creator", "type", "channel", "custom"].includes(id),
+    (id) => !["creator", "type", "quality", "risk", "channel", "custom"].includes(id),
   ),
 );
 
@@ -111,10 +111,11 @@ function createPrompt(definitions) {
 ${JSON.stringify(definitions)}
 规则：
 1. language 仅识别画面文字语言，不推测没有传入的音频；多种语言用简短文字说明。country 仅在画面明确给出目标国家时填写，不可根据语言、人物外貌、背景或城市猜测投放国家。
-2. gender 仅在字幕或文字明确给出虚构角色的性别设定时填写。不可根据真实人物外貌推断其性别身份，不识别真实人物身份；无法确定则留空。
-3. role、form、category 根据明确的作品和内容形式判断；若不知道业务代码代表什么就留空，不可猜测代码含义。product、competitor 仅使用可读品牌或产品标识。
-4. marketing、quality、risk、femaleCategory 仅在画面与可选项说明足够支持时填入；不根据人物外貌猜测敏感身份，不推测观众身份，不宣称拥有版权或通过审核。没有清晰对应关系就留空。
-5. creator、channel、custom 和素材物理属性不是视觉推断任务，不输出这些字段。不要为凑齐文件名编造信息。summary 最多 240 字。`;
+2. gender 是重点字段。逐帧查看可见人物，综合多帧判断主要角色在素材中的呈现。单个主要角色清楚呈现为男性时填 MAL，呈现为女性时填 FMAL；没有字幕也可根据清晰的画面判断，字幕中的明确角色设定可辅助确认。多个不同角色都是主角时填 MPP，同一角色跨帧出现只算一人，背景路人和短暂陪衬不计入。主角是动物时填 ANI，明确属于其他角色类型时填 Others。人物太小、被遮挡、无可见角色或线索不一致，无法可靠判断时填 Others。只标注素材中的角色呈现，不推断画面人物的真实身份。
+3. role、form 根据明确的作品和内容形式判断。product、competitor 仅使用可读品牌或产品标识。
+4. category 优先判断 Fu、Tool、Lcc、Lrp 四类。若素材主要靠笑点、反转或 meme 梗表达，即使同时有恋爱、角色扮演或功能展示，也优先选 Fu。其余按主要内容区分：非恋爱功能演示选 Tool，恋爱向日常闲聊选 Lcc，恋爱向角色扮演选 Lrp。其他类目明确匹配时可选对应代码，证据不足则留空。
+5. marketing 根据画面中清晰展示的功能填写，例如一对一聊天界面对应 chat、通话界面对应 call、群聊界面对应 Grch。femaleCategory 只在画面明确标明制作分类时填写。
+6. creator、quality、risk、channel、custom 和素材物理属性由工具台设置，不输出这些字段。不要为凑齐文件名编造信息。summary 最多 240 字。`;
 }
 
 function parseResult(content, definitions) {
@@ -155,8 +156,11 @@ function parseResult(content, definitions) {
   for (const field of definitions) {
     const value = shortText(source[field.id]);
     if (!value) continue;
+    const lookup = value.toLowerCase();
     const option = field.options.find(
-      (option) => option.value === value || option.label === value,
+      (option) => option.value.toLowerCase() === lookup,
+    ) ?? field.options.find(
+      (option) => option.label.toLowerCase() === lookup,
     );
     if (field.options.length && !option) continue;
     result[field.id] = option?.value || value;
@@ -205,13 +209,13 @@ async function useLocalRelay(endpoint, signal) {
       signal,
     });
     if (signal.aborted) throw cancelled();
-    if (!response.ok) return (relayCapability = false);
+    if (!response.ok) return false;
     const capabilities = await response.json();
     return (relayCapability = capabilities?.smartAiRelay === true);
   } catch (error) {
     if (signal.aborted) throw cancelled();
     // Static hosting has no relay; user-defined CORS-enabled APIs still work.
-    return (relayCapability = false);
+    return false;
   }
 }
 
@@ -253,6 +257,7 @@ export async function analyzeSmartFrames(
     timedOut = true;
     controller.abort();
   }, 90000);
+  let relay = false;
   try {
     if (signal?.aborted) throw cancelled();
     const payload = {
@@ -274,7 +279,7 @@ export async function analyzeSmartFrames(
         },
       ],
     };
-    const relay = await useLocalRelay(endpoint, controller.signal);
+    relay = await useLocalRelay(endpoint, controller.signal);
     if (controller.signal.aborted) throw cancelled();
     const response = await fetch(relay ? "/api/smart/analyze" : endpoint, {
       method: "POST",
@@ -317,7 +322,11 @@ export async function analyzeSmartFrames(
     if (error?.name === "AbortError") throw cancelled();
     if (error instanceof TypeError)
       throw new Error(
-        "无法连接 AI 接口，请检查网络与地址。若浏览器拦截跨域请求，请使用支持跨域的服务入口。",
+        relay
+          ? "无法连接本工具台的 AI 转发服务，请确认工具台服务仍在运行后重试。"
+          : endpoint.startsWith("https://ark.cn-beijing.volces.com/")
+            ? "浏览器无法直连火山方舟。请双击项目中的「打开工具台.command」（Mac）或「打开工具台.cmd」（Windows），在打开的本地工具台中重试。"
+            : "无法连接 AI 接口，请检查 Base URL、网络和接口的跨域设置。",
       );
     throw error;
   } finally {

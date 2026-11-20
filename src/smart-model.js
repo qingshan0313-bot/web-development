@@ -49,7 +49,7 @@ export const SMART_FIELDS = Object.freeze([
       ["ANI", "动物"],
       ["Others", "其他"],
     ],
-    { hint: "按素材角色设定标注，不按真实人物外貌推断性别。" },
+    { hint: "结合多帧画面判断主要角色的呈现。多个主要角色选 MPP，分析无法判断时填 Others。" },
   ),
   field(
     "role",
@@ -95,7 +95,7 @@ export const SMART_FIELDS = Object.freeze([
     ["PLT", "实拍 · 剧情"],
     ["JUQ", "KOL 二创 · 剧情"],
   ]),
-  field("creator", "创意人", ["ZYY", "WZC", "LXF", "WW", "YG"], {
+  field("creator", "创意人", ["ZYY", "WZC", "LXF", "WW", "YG", "DXP"], {
     hint: "手动填写创意人缩写，与命名规则中的剪辑人缩写分开记录。",
     manual: true,
   }),
@@ -258,7 +258,7 @@ export const SMART_DEFAULTS = Object.freeze({
   start: 1,
   padding: 2,
   separator: "_",
-  shorthand: "QS",
+  shorthand: "XQS",
   template:
     "{country}_{date}_{shorthand}_{sequence}_{gender}_{role}_{form}_{category}_{creator}_{ratio}_{type}_{product}_{marketing}_{quality}_{duration}_{risk}_{channel}_{femaleCategory}_{competitor}_{custom}",
 });
@@ -376,7 +376,7 @@ export function normalizeSmartOptions(input = {}) {
 }
 
 /** One-time upgrade of old bare-code dictionaries; normal edits still replace defaults. */
-export function upgradeSmartOptions(input = {}) {
+export function upgradeSmartOptions(input = {}, revision = 0) {
   const source = isObject(input) ? input : {};
   const result = normalizeSmartOptions(source);
   const addedCodes = {
@@ -384,8 +384,10 @@ export function upgradeSmartOptions(input = {}) {
     form: ["hunjian"],
     product: ["CSH"],
     channel: ["TT", "DSP"],
+    creator: ["DXP"],
   };
   for (const { id, options } of SMART_FIELDS) {
+    if (revision >= 2 && id !== "creator") continue;
     // Missing or invalid dictionaries already receive the current defaults.
     // A deliberately emptied field must remain empty.
     if (!Array.isArray(source[id]) || !result[id].length) continue;
@@ -412,6 +414,14 @@ export function upgradeSmartOptions(input = {}) {
   return result;
 }
 
+const DEFAULT_NAMING_FIELDS = Object.freeze({
+  role: "OTH",
+  product: "CP",
+  quality: "JZSC",
+  risk: "Normal",
+  channel: "TY",
+});
+
 export function defaultSmartFields(metadata = {}) {
   const source = isObject(metadata) ? metadata : {};
   const marker = String(
@@ -428,6 +438,7 @@ export function defaultSmartFields(metadata = {}) {
         : "vid";
   return {
     ...Object.fromEntries(SMART_FIELDS.map(({ id }) => [id, ""])),
+    ...DEFAULT_NAMING_FIELDS,
     type,
   };
 }
@@ -463,6 +474,23 @@ export function applySmartFields(
   return { ...asset, fields, manualFields: [...manual] };
 }
 
+export function previewSmartUniformFields(asset, patch, all = false) {
+  if (asset.hasAnalysis || asset.status === "ready" || (!all && !asset.selected))
+    return asset;
+  return applySmartFields(asset, patch, { source: "uniform" });
+}
+
+export function applySmartAnalysis(asset, result) {
+  const fields = { ...result };
+  for (const [key, value] of Object.entries(DEFAULT_NAMING_FIELDS)) {
+    if (!asset.fields?.[key] && !fields[key]) fields[key] = value;
+  }
+  if (!fields.gender && !asset.fields?.gender) fields.gender = "Others";
+  if (!fields.category && !asset.fields?.category) fields.category = "Lcc";
+  if (!fields.marketing && !asset.fields?.marketing) fields.marketing = "chat";
+  return applySmartFields(asset, fields);
+}
+
 export function smartRatio(width, height) {
   const w = Math.round(Number(width));
   const h = Math.round(Number(height));
@@ -486,13 +514,15 @@ export function smartRatio(width, height) {
 }
 
 function filenameParts(asset) {
-  const originalName = String(asset.file?.name || asset.originalName || "素材");
+  const originalName = String(asset.sourceFile?.name || asset.file?.name || asset.originalName || "素材");
   const leaf = originalName.split(/[\\/]/).pop() || "素材";
   const match = leaf.match(/^(.*)\.([a-z\d]{1,12})$/i);
   return {
     originalName,
     original: match?.[1] || leaf,
-    extension: match?.[2] || "",
+    extension: asset.sourceFile
+      ? asset.file.name.match(/\.([a-z\d]{1,12})$/i)?.[1] || ""
+      : match?.[2] || "",
   };
 }
 
@@ -519,12 +549,16 @@ function truncateBytes(value, bytes) {
   return result;
 }
 
+export function formatSmartNamingDuration(duration) {
+  const seconds = Number(duration);
+  return Number.isFinite(seconds) && seconds > 0 ? `${Math.trunc(seconds)}s` : "";
+}
+
 function namingContext(asset) {
   const metadata = isObject(asset.metadata) ? asset.metadata : {};
   const overrides = isObject(asset.namingMetadata) ? asset.namingMetadata : {};
   const width = Number(metadata.width),
-    height = Number(metadata.height),
-    seconds = Number(metadata.duration);
+    height = Number(metadata.height);
   const context = {
     width: Number.isFinite(width) && width > 0 ? String(Math.round(width)) : "",
     height:
@@ -537,10 +571,7 @@ function namingContext(asset) {
         ? `${Math.round(width)}x${Math.round(height)}`
         : "",
     ratio: smartRatio(width, height) || textValue(metadata.ratio),
-    duration:
-      Number.isFinite(seconds) && seconds > 0
-        ? `${Number(seconds.toFixed(2))}s`
-        : "",
+    duration: formatSmartNamingDuration(metadata.duration),
   };
   for (const key of ["width", "height", "resolution", "ratio", "duration"]) {
     if (!Object.hasOwn(overrides, key)) continue;

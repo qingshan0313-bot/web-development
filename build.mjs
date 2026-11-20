@@ -17,6 +17,7 @@ const modules = [
   "mix-ui",
   "smart-model",
   "smart-media",
+  "smart-optimize",
   "smart-ai",
   "smart-ui",
 ];

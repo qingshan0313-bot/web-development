@@ -6,9 +6,8 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Local development notes and generated archives
-/开发交接.txt
+# Local media, exports and deployment archives
+local-media/
+exports/
+*.tar.gz
 *.zip
-*.tmp
-__pycache__/
-.envrc

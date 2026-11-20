@@ -276,8 +276,10 @@
   outline-offset: 2px;
 }
 .smart-uniform-field input[type="text"],
+.smart-uniform-field select,
 .smart-uniform-actions select,
 .smart-asset-field > input,
+.smart-asset-field > select,
 .smart-metadata-fields input,
 .smart-name-row input,
 .smart-option-add input {
@@ -292,7 +294,9 @@
   color: #414955;
 }
 .smart-uniform-field input:focus,
+.smart-uniform-field select:focus,
 .smart-asset-field input:focus,
+.smart-asset-field select:focus,
 .smart-name-row input:focus,
 .smart-option-add input:focus,
 .smart-metadata-fields input:focus {
@@ -513,7 +517,8 @@
   font-size: 8px;
   cursor: pointer;
 }
-.smart-asset-field.is-protected input {
+.smart-asset-field.is-protected input,
+.smart-asset-field.is-protected select {
   border-color: #cdddf6;
   background: #fcfdff;
 }
@@ -682,6 +687,24 @@
   padding: 24px;
   color: #20242c;
   background: #fff;
+}
+#smart-optimize-list {
+  max-height: 28vh;
+  overflow: auto;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.smart-optimize-actions:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+#smart-optimize-progress {
+  display: block;
+  width: 100%;
+  margin: 10px 0 16px;
 }
 .smart-dialog::backdrop {
   background: #121b2d65;

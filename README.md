@@ -1,32 +1,68 @@
 # Frame 素材工具台
 
-网页开发工程：在浏览器中处理视频、图片、字幕和素材命名，包含批量混剪、对话打字动画、视频居中、计时器等工具。
+浏览器素材处理工具，使用原生 HTML、CSS、JavaScript 和 Node.js。支持 Mac 与 Windows；素材默认在浏览器内处理。
 
-## 本地运行
+## 本地开发
 
-安装 Node.js 18 或以上版本，然后在项目目录运行：
-
-```sh
-npm run dev
-```
-
-打开终端显示的地址，默认是 `http://127.0.0.1:4173/`。项目使用原生 JavaScript，无需安装 npm 运行依赖；视频处理所需组件已包含在 `src/vendor` 中。
+安装 Node.js 24（版本见 .nvmrc）与 Git，在项目根目录运行：
 
 ```sh
-npm run build    # 构建 dist
-npm run preview  # 预览构建结果，默认端口 4174
-npm start        # 构建并启动生产服务，默认端口 8080
+npm run dev:open
 ```
 
-macOS 可双击 `打开工具台.command` 启动本地服务。Windows 可双击 `打开工具台.cmd` 体验静态页面；MOV 导出需要通过本地 HTTP 服务运行。
+打开 http://127.0.0.1:4173/ 。修改 src/ 后刷新页面。视频导出建议使用 Chrome 或 Edge。
+项目没有 npm 运行依赖，无需 npm install。
 
-## 工程内容
+- Mac：也可以双击“打开工具台.command”。
+- Windows：也可以双击“打开工具台.cmd”。
+- 停止服务：在终端按 Ctrl+C。
+- 端口占用：npm run dev:open -- --port 4175。
 
-- `src/`：源码、样式及本地视频处理组件。
-- `dist/`：构建后的网页。
-- `server.mjs`：静态服务及可选智能命名接口转发。
-- `build.mjs`：构建脚本。
-- `使用说明.txt`：各工具的操作说明。
-- `THIRD_PARTY_NOTICES.txt`：第三方组件及许可证信息。
+## 构建与预览
 
-素材处理主要在浏览器本地完成。智能命名的 AI 分析需要用户主动配置服务并触发；请在分享和部署时保留第三方组件的许可证文件。
+```sh
+npm run build
+npm run preview
+```
+
+预览地址为 http://127.0.0.1:4174/ 。编辑 src/，由 build.mjs 生成 dist/；不要手动修改 dist/。
+构建时会将视频编码 WASM 拆分为两个静态文件，以符合 Sites 单文件大小限制。
+请保留 src/vendor/ 中的媒体库、WASM 及许可证。
+
+## Mac / Windows 协作
+
+两台电脑克隆同一个 GitHub 私有仓库。若使用不同 GitHub 账号，由仓库所有者邀请另一账号为协作者。
+每台电脑独立配置 Git 的 user.name 和 user.email，并使用各自账号登录。
+
+开始工作前：
+
+```sh
+git pull --ff-only origin main
+```
+
+完成修改并验证后：
+
+```sh
+npm run build
+git add .
+git commit -m "说明本次修改"
+git push origin main
+```
+
+切换电脑前先提交并推送，换电脑后先拉取。遇到冲突时先处理冲突，不要强制推送覆盖另一台电脑的工作。
+如果需要同时开发不同功能，分别建立功能分支，再合并到 main。
+.gitattributes 统一代码换行符，同时为 Windows 启动器保留 CRLF。
+
+## Sites 发布
+
+线上站点：https://frame-material-studio.spicyadage32.chatgpt.site/
+
+.openai/hosting.json 保存现有 Site 的项目标识与静态目录，请保留；更新时复用该项目，不要创建重复站点。
+GitHub 用于源码同步，推送 GitHub 不会自动更新线上站点。当前通过 Sites 工作流另行同步源码、保存版本并部署。
+不同开发账号能同步 GitHub 源码，但不等于都拥有 Sites 发布权限；发布需使用有权管理原站点的账号。
+
+## 文件与凭据
+
+.env、密钥、访问令牌、本地素材和导出视频不应提交。个人素材放在被忽略的 local-media/，导出文件放在 exports/。
+浏览器里的制作记录、收藏和 API 配置不通过 Git 同步。
+静态线上版本不运行 server.mjs 的 AI 中转服务；本地服务提供官方 Ark 接口中转，其他接口需符合浏览器跨域要求。

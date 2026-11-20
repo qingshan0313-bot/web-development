@@ -36,7 +36,10 @@ function waitWithAbort(promise, signal) {
  * exec and readFile. Its worker and virtual files are always destroyed afterward.
  * A queued cancellation rejects promptly without interrupting another caller.
  */
-export function withProResEncoder(action, { signal, onProgress } = {}) {
+export function withProResEncoder(
+  action,
+  { signal, onProgress, label = "ProRes 透明视频编码器" } = {},
+) {
   if (signal?.aborted) return Promise.reject(cancelled());
   const task = encoderQueue.then(async () => {
     const checkAbort = () => {
@@ -46,13 +49,13 @@ export function withProResEncoder(action, { signal, onProgress } = {}) {
     const base = new URL("vendor/ffmpeg/", document.baseURI);
     if (!["http:", "https:"].includes(base.protocol)) {
       throw new Error(
-        "ProRes 透明 MOV 需要通过本地 HTTP 服务或 HTTPS 网站打开。请运行 npm run dev，或使用已部署的网址。",
+        `${label}需要通过本地 HTTP 服务或 HTTPS 网站打开。请运行 npm run dev，或使用已部署的网址。`,
       );
     }
     const FFmpeg = globalThis.FFmpegWASM?.FFmpeg;
     if (!FFmpeg)
       throw new Error(
-        "ProRes 编码组件未加载，请保留完整 vendor/ffmpeg 目录并刷新页面。",
+        `${label}未加载，请保留完整 vendor/ffmpeg 目录并刷新页面。`,
       );
     const ffmpeg = new FFmpeg();
     const abort = () => ffmpeg.terminate();
@@ -61,7 +64,7 @@ export function withProResEncoder(action, { signal, onProgress } = {}) {
     signal?.addEventListener("abort", abort, { once: true });
     try {
       checkAbort();
-      onProgress?.(0, "正在加载 ProRes 透明视频编码器…");
+      onProgress?.(0, `正在加载${label}…`);
       checkAbort();
       let wasmParts = await Promise.all([0, 1].map(async (index) => {
         const response = await fetch(new URL(`ffmpeg-core.wasm.part${index}`, base), { signal });
@@ -85,7 +88,7 @@ export function withProResEncoder(action, { signal, onProgress } = {}) {
               () =>
                 reject(
                   new Error(
-                    "ProRes 编码器加载超时，请检查本地编码文件是否完整后重试。",
+                    `${label}加载超时，请检查本地编码文件是否完整后重试。`,
                   ),
                 ),
               45000,
@@ -111,7 +114,7 @@ export function withProResEncoder(action, { signal, onProgress } = {}) {
         )
       ) {
         throw new Error(
-          "ProRes 透明视频占用内存过多，请缩短片段或降低分辨率后重试。",
+          `${label}内存不足，请缩短片段或降低分辨率后重试。`,
         );
       }
       throw error instanceof Error ? error : new Error(message);
