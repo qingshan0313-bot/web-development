@@ -1,7 +1,18 @@
-import { readFile, writeFile, copyFile, mkdir, cp, unlink } from "node:fs/promises";
+import { readFile, writeFile, copyFile, mkdir, cp, unlink, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = new URL("./", import.meta.url);
+const sitesBuild = process.argv.includes("--sites");
+const dist = new URL("dist/", root);
+const browserOutput = sitesBuild ? new URL("client/", dist) : dist;
+const browserFiles = [
+  "index.html",
+  "styles.css",
+  "chat.css",
+  "mix.css",
+  "smart.css",
+  "icon.svg",
+];
 const modules = [
   "undo-history",
   "media",
@@ -34,23 +45,16 @@ function connectImports(code) {
     },
   );
 }
-await mkdir(new URL("dist/", root), { recursive: true });
-await cp(new URL("src/vendor/", root), new URL("dist/vendor/", root), {
+await mkdir(browserOutput, { recursive: true });
+await cp(new URL("src/vendor/", root), new URL("vendor/", browserOutput), {
   recursive: true,
 });
 await copyFile(
   new URL("THIRD_PARTY_NOTICES.txt", root),
-  new URL("dist/THIRD_PARTY_NOTICES.txt", root),
+  new URL("THIRD_PARTY_NOTICES.txt", browserOutput),
 );
-for (const file of [
-  "index.html",
-  "styles.css",
-  "chat.css",
-  "mix.css",
-  "smart.css",
-  "icon.svg",
-])
-  await copyFile(new URL(`src/${file}`, root), new URL(`dist/${file}`, root));
+for (const file of browserFiles)
+  await copyFile(new URL(`src/${file}`, root), new URL(file, browserOutput));
 let bundle =
   "/* Frame Studio · browser-local tools; media library bundled alongside */\n";
 for (const name of modules) {
@@ -66,15 +70,31 @@ for (const name of modules) {
 }
 const app = connectImports(await readFile(new URL("src/app.js", root), "utf8"));
 bundle += `(() => {\n${app}\n})();\n`;
-await writeFile(new URL("dist/app.bundle.js", root), bundle);
+await writeFile(new URL("app.bundle.js", browserOutput), bundle);
 console.log(
-  `Built ${fileURLToPath(new URL("dist/app.bundle.js", root))} (${Buffer.byteLength(bundle)} bytes)`,
+  `Built ${fileURLToPath(new URL("app.bundle.js", browserOutput))} (${Buffer.byteLength(bundle)} bytes)`,
 );
 
-const wasmURL = new URL("dist/vendor/ffmpeg/ffmpeg-core.wasm", root);
+const wasmURL = new URL("vendor/ffmpeg/ffmpeg-core.wasm", browserOutput);
 const wasmBytes = await readFile(wasmURL);
 const chunkSize = 16 * 1024 * 1024;
 for (let index = 0; index < 2; index++) {
-  await writeFile(new URL(`dist/vendor/ffmpeg/ffmpeg-core.wasm.part${index}`, root), wasmBytes.subarray(index * chunkSize, (index + 1) * chunkSize));
+  await writeFile(new URL(`vendor/ffmpeg/ffmpeg-core.wasm.part${index}`, browserOutput), wasmBytes.subarray(index * chunkSize, (index + 1) * chunkSize));
 }
 await unlink(wasmURL);
+
+if (sitesBuild) {
+  const serverOutput = new URL("server/", dist);
+  await mkdir(serverOutput, { recursive: true });
+  for (const file of ["index.js", "smart-relay-core.mjs"])
+    await copyFile(new URL(`worker/${file}`, root), new URL(file, serverOutput));
+  await writeFile(new URL("wrangler.json", serverOutput), JSON.stringify({
+    main: "index.js",
+    compatibility_date: "2026-01-01",
+    assets: { directory: "../client", binding: "ASSETS" },
+  }, null, 2) + "\n");
+
+  // Older static Site builds emitted the same assets directly under dist/.
+  for (const entry of [...browserFiles, "app.bundle.js", "THIRD_PARTY_NOTICES.txt", "vendor/"])
+    await rm(new URL(entry, dist), { recursive: true, force: true });
+}

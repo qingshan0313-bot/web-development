@@ -297,7 +297,19 @@ export async function analyzeSmartFrames(
         relay ? { endpoint, apiKey: settings.apiKey, payload } : payload,
       ),
     });
-    if (!response.ok) throw responseError(response.status);
+    if (!response.ok) {
+      let relayError;
+      if (relay && /application\/json/i.test(response.headers.get("content-type") || "")) {
+        try {
+          relayError = (await response.json())?.error;
+        } catch {}
+      }
+      const message = shortText(relayError?.message, 200);
+      const code = shortText(relayError?.code, 40);
+      if (message)
+        throw new Error(/^ARK_[A-Z_]+$/.test(code) ? `${message}（${code}）` : message);
+      throw responseError(response.status);
+    }
     const raw = await response.text();
     if (raw.length > 1024 * 1024)
       throw new Error("AI 返回内容过大，请更换模型或重试。");

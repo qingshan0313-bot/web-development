@@ -55,9 +55,9 @@ git push origin main
 
 ## Sites 发布
 
-线上站点：https://frame-material-studio.spicyadage32.chatgpt.site/
+线上站点：https://qs-studio.spicyadage32.chatgpt.site/
 
-.openai/hosting.json 保存现有 Site 的项目标识与静态目录，请保留；更新时复用该项目，不要创建重复站点。
+.openai/hosting.json 保存现有 Site 的项目标识，请保留；更新时复用该项目，不要创建重复站点。
 GitHub 用于源码同步，推送 GitHub 不会自动更新线上站点。当前通过 Sites 工作流另行同步源码、保存版本并部署。
 不同开发账号能同步 GitHub 源码，但不等于都拥有 Sites 发布权限；发布需使用有权管理原站点的账号。
 
@@ -65,4 +65,4 @@ GitHub 用于源码同步，推送 GitHub 不会自动更新线上站点。当�
 
 .env、密钥、访问令牌、本地素材和导出视频不应提交。个人素材放在被忽略的 local-media/，导出文件放在 exports/。
 浏览器里的制作记录、收藏和 API 配置不通过 Git 同步。
-静态线上版本不运行 server.mjs 的 AI 中转服务；本地服务提供官方 Ark 接口中转，其他接口需符合浏览器跨域要求。
+使用 npm run build:sites 构建 Sites 版本。线上 Worker 与本地 Node 服务使用同一套火山方舟转发校验。浏览器将抽帧和用户填写的 Key 发送到同源接口，转发服务不保存它们。其他服务仍通过浏览器调用，需要支持跨域。
