@@ -15,6 +15,13 @@ const field = (id, label, values, details = {}) =>
     ),
   });
 
+const SMART_GENDER_CHOICES = [["MAL", "男性"], ["FMAL", "女性"], ["MPP", "男女都有"]];
+
+export function normalizeSmartGender(value) {
+  const code = typeof value === "string" ? value.trim().toUpperCase() : "";
+  return SMART_GENDER_CHOICES.some(([option]) => option === code) ? code : "";
+}
+
 export const SMART_FIELDS = Object.freeze([
   field(
     "country",
@@ -42,14 +49,8 @@ export const SMART_FIELDS = Object.freeze([
   field(
     "gender",
     "角色性别",
-    [
-      ["MAL", "男性"],
-      ["FMAL", "女性"],
-      ["MPP", "多人"],
-      ["ANI", "动物"],
-      ["Others", "其他"],
-    ],
-    { hint: "结合多帧画面判断主要角色的呈现。多个主要角色选 MPP，分析无法判断时填 Others。" },
+    SMART_GENDER_CHOICES,
+    { hint: "视频只看后半段。仅男性选 MAL，仅女性选 FMAL，男女都有选 MPP。无法辨认时留空。" },
   ),
   field(
     "role",
@@ -189,7 +190,7 @@ export const SMART_FIELDS = Object.freeze([
       ["WCOMP", "参考竞品（women-oriented Competitor）"],
     ],
     {
-      hint: "有对应制作分类时填写，没有则留空。",
+      hint: "有对应制作分类时填写。FMAL 素材会自动关闭此项。",
       optional: true,
       manual: true,
     },
@@ -251,6 +252,17 @@ const encoder = new TextEncoder();
 function todayCode() {
   const now = new Date();
   return `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+}
+
+export function normalizeSmartUniform(input) {
+  const values = Object.fromEntries(SMART_FIELDS.map(({ id }) => [
+    id,
+    typeof input?.values?.[id] === "string" ? input.values[id].slice(0, 120) : "",
+  ]));
+  const enabled = Array.isArray(input?.enabled)
+    ? SMART_FIELDS.filter(({ id }) => input.enabled.includes(id)).map(({ id }) => id)
+    : [];
+  return { values, enabled };
 }
 
 export const SMART_DEFAULTS = Object.freeze({
@@ -354,6 +366,7 @@ export function normalizeSmartOptions(input = {}) {
   const source = isObject(input) ? input : {};
   return Object.fromEntries(
     SMART_FIELDS.map(({ id, options }) => {
+      if (id === "gender") return [id, options.map((option) => ({ ...option }))];
       const supplied =
         Object.hasOwn(source, id) && Array.isArray(source[id])
           ? source[id]
@@ -443,7 +456,14 @@ export function defaultSmartFields(metadata = {}) {
   };
 }
 
-/** Manual edits are sticky, including an intentionally cleared field. */
+export function isSmartFemaleCategoryDisabled(asset) {
+  return (
+    asset.detectedGender === "FMAL" ||
+    normalizeSmartGender(asset.fields?.gender) === "FMAL"
+  );
+}
+
+/** Preserve manual edits and then enforce rules that apply to the whole asset. */
 export function applySmartFields(
   asset,
   patch,
@@ -453,7 +473,9 @@ export function applySmartFields(
     throw new Error("素材字段格式无效。");
   const fields = { ...defaultSmartFields(asset.metadata) };
   for (const id of FIELD_IDS)
-    fields[id] = textValue(asset.fields?.[id] ?? fields[id]);
+    fields[id] = id === "gender"
+      ? normalizeSmartGender(asset.fields?.[id])
+      : textValue(asset.fields?.[id] ?? fields[id]);
   const manual = new Set(
     Array.isArray(asset.manualFields)
       ? asset.manualFields.filter((id) => FIELD_IDS.has(id))
@@ -468,16 +490,24 @@ export function applySmartFields(
       typeof patch[id] !== "number"
     )
       continue;
-    fields[id] = patch[id] === null ? "" : textValue(patch[id]);
+    fields[id] = id === "gender"
+      ? normalizeSmartGender(patch[id])
+      : textValue(patch[id]);
     if (source === "manual") manual.add(id);
   }
-  return { ...asset, fields, manualFields: [...manual] };
+  const updated = { ...asset, fields };
+  if (source !== "preview" && isSmartFemaleCategoryDisabled(updated)) {
+    fields.femaleCategory = "";
+    manual.delete("femaleCategory");
+  }
+  return { ...updated, manualFields: [...manual] };
 }
 
 export function previewSmartUniformFields(asset, patch, all = false) {
   if (asset.hasAnalysis || asset.status === "ready" || (!all && !asset.selected))
     return asset;
-  return applySmartFields(asset, patch, { source: "uniform" });
+  // Keep staged values available until analysis resolves the final gender.
+  return applySmartFields(asset, patch, { source: "preview" });
 }
 
 export function applySmartAnalysis(asset, result) {
@@ -485,10 +515,12 @@ export function applySmartAnalysis(asset, result) {
   for (const [key, value] of Object.entries(DEFAULT_NAMING_FIELDS)) {
     if (!asset.fields?.[key] && !fields[key]) fields[key] = value;
   }
-  if (!fields.gender && !asset.fields?.gender) fields.gender = "Others";
   if (!fields.category && !asset.fields?.category) fields.category = "Lcc";
   if (!fields.marketing && !asset.fields?.marketing) fields.marketing = "chat";
-  return applySmartFields(asset, fields);
+  return applySmartFields(
+    { ...asset, detectedGender: normalizeSmartGender(fields.gender) },
+    fields,
+  );
 }
 
 export function smartRatio(width, height) {
@@ -616,6 +648,11 @@ function renderTemplate(template, context, separator) {
   return chunks.map(({ text }) => text).join("");
 }
 
+function smartFieldValue(asset, id) {
+  if (id === "femaleCategory" && isSmartFemaleCategoryDisabled(asset)) return "";
+  return asset.fields?.[id];
+}
+
 /** Returns portable unique names in input order and always retains the source extension. */
 export function buildSmartNames(assets, value = {}) {
   if (!Array.isArray(assets)) throw new Error("素材列表格式无效。");
@@ -628,7 +665,7 @@ export function buildSmartNames(assets, value = {}) {
     const parts = filenameParts(asset);
     const context = {
       ...Object.fromEntries(
-        SMART_FIELDS.map(({ id }) => [id, textValue(asset.fields?.[id])]),
+        SMART_FIELDS.map(({ id }) => [id, textValue(smartFieldValue(asset, id))]),
       ),
       ...namingContext(asset),
       date: settings.date,
@@ -704,7 +741,7 @@ export function smartCsv(assets, settings = {}, suppliedNames) {
     rows.push([
       names[index].originalName,
       names[index].name,
-      ...SMART_FIELDS.map(({ id }) => asset.fields?.[id] || ""),
+      ...SMART_FIELDS.map(({ id }) => smartFieldValue(asset, id) || ""),
       metadata.width || "",
       metadata.height || "",
       metadata.duration || "",

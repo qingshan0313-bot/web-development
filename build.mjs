@@ -85,9 +85,16 @@ await unlink(wasmURL);
 
 if (sitesBuild) {
   const serverOutput = new URL("server/", dist);
+  const hostingOutput = new URL(".openai/", dist);
   await mkdir(serverOutput, { recursive: true });
-  for (const file of ["index.js", "smart-relay-core.mjs"])
-    await copyFile(new URL(`worker/${file}`, root), new URL(file, serverOutput));
+  await mkdir(hostingOutput, { recursive: true });
+  await copyFile(new URL(".openai/hosting.json", root), new URL("hosting.json", hostingOutput));
+  await cp(new URL("drizzle/", root), new URL("drizzle/", hostingOutput), { recursive: true });
+  const workerEntry = await readFile(new URL("worker/index.js", root), "utf8");
+  await writeFile(new URL("index.js", serverOutput), workerEntry.replace("../src/", "./"));
+  await copyFile(new URL("worker/smart-relay-core.mjs", root), new URL("smart-relay-core.mjs", serverOutput));
+  for (const file of ["smart-model.js", "smart-preset-api.js"])
+    await copyFile(new URL(`src/${file}`, root), new URL(file, serverOutput));
   await writeFile(new URL("wrangler.json", serverOutput), JSON.stringify({
     main: "index.js",
     compatibility_date: "2026-01-01",

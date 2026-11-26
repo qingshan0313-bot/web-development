@@ -185,10 +185,10 @@ export async function inspectSmartMedia(file, { signal, onProgress } = {}) {
   }
 }
 
-/** Sample evenly spaced video frames, or one image, entirely in the browser. */
+/** Sample two opening frames and four frames after the midpoint, or one still image. */
 export async function extractSmartFrames(
   file,
-  { signal, count = 8, maxDimension = 1280, onProgress } = {},
+  { signal, maxDimension = 1280, onProgress } = {},
 ) {
   checkAbort(signal);
   const type = mediaType(file);
@@ -199,27 +199,27 @@ export async function extractSmartFrames(
       const frame = capture(image, metadata, maxDimension);
       onProgress?.(1);
       checkAbort(signal);
-      return [frame];
+      return { frames: [frame], firstHalfFrameCount: null };
     });
-  const total = Math.min(8, Math.max(1, Math.round(Number(count) || 8)));
+  const firstHalfFrameCount = 2;
+  const secondHalfFrameCount = 4;
+  const total = firstHalfFrameCount + secondHalfFrameCount;
   let video;
   try {
     video = await loadVideo(file, { signal });
     const metadata = metadataFor(video, "video");
     const frames = [];
     for (let index = 0; index < total; index++) {
-      // Sample the centre of each interval to avoid blank first/end frames.
-      await seekFrame(
-        video,
-        ((index + 0.5) / total) * metadata.duration,
-        signal,
-      );
+      const position = index < firstHalfFrameCount
+        ? (index + 0.5) / (2 * firstHalfFrameCount)
+        : 0.5 + (index - firstHalfFrameCount + 0.5) / (2 * secondHalfFrameCount);
+      await seekFrame(video, position * metadata.duration, signal);
       checkAbort(signal);
       frames.push(capture(video, metadata, maxDimension));
       onProgress?.((index + 1) / total);
       checkAbort(signal);
     }
-    return frames;
+    return { frames, firstHalfFrameCount };
   } finally {
     disposeVideo(video);
   }

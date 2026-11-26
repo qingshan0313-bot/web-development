@@ -85,7 +85,7 @@ function validatePayload(body) {
       typeof message.content === "string"
         ? [{ type: "text", text: message.content }]
         : message.content;
-    if (!Array.isArray(parts) || !parts.length || parts.length > 10)
+    if (!Array.isArray(parts) || !parts.length || parts.length > 17)
       throw failure(400, "AI 消息内容无效。");
     const content = parts.map((part) => {
       if (
@@ -187,7 +187,7 @@ export async function handleSmartRelay(
   if (!/^application\/json(?:;|$)/i.test(request.headers.get("content-type") || ""))
     return errorResponse("请求需要使用 JSON。", 415);
   if (activeRequests >= maxConcurrent)
-    return errorResponse("当前分析较多，请稍后重试。", 429);
+    return errorResponse("当前分析较多，请稍后重试。", 429, { "Retry-After": "2" });
 
   activeRequests++;
   const timeout = new AbortController();
@@ -218,8 +218,14 @@ export async function handleSmartRelay(
     if (!upstream.ok) {
       await upstream.body?.cancel().catch(() => {});
       const status = upstream.status;
-      if (Object.hasOwn(UPSTREAM_ERRORS, status))
-        return errorResponse(UPSTREAM_ERRORS[status], status);
+      if (Object.hasOwn(UPSTREAM_ERRORS, status)) {
+        const retryAfter = status === 429 ? upstream.headers.get("retry-after") : null;
+        return errorResponse(
+          UPSTREAM_ERRORS[status],
+          status,
+          retryAfter ? { "Retry-After": retryAfter } : undefined,
+        );
+      }
       return relayFailure(
         "ARK_HTTP",
         `火山方舟返回 HTTP ${status}，请稍后重试。`,

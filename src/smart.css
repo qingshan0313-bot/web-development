@@ -975,3 +975,22 @@
     transition: none;
   }
 }
+
+.smart-presets-controls:not([hidden]) {
+  display: grid;
+  gap: 14px;
+}
+
+.smart-presets-controls form,
+.smart-preset-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+
+.smart-presets-controls .field {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin-bottom: 0;
+}

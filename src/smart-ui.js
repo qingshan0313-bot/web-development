@@ -3,6 +3,9 @@ import {
   SMART_DEFAULTS,
   normalizeSmartSettings,
   normalizeSmartOptions,
+  normalizeSmartGender,
+  isSmartFemaleCategoryDisabled,
+  normalizeSmartUniform,
   upgradeSmartOptions,
   defaultSmartFields,
   formatSmartNamingDuration,
@@ -152,22 +155,14 @@ export function setupSmartEditor(api) {
   let settingsError = "";
   let previewURL = null;
   let optionTarget = null;
-  const savedUniform = readStored(UNIFORM_KEY, {});
-  const uniformValues = Object.fromEntries(
-    SMART_FIELDS.map(({ id }) => [
-      id,
-      typeof savedUniform?.values?.[id] === "string"
-        ? savedUniform.values[id].slice(0, 120)
-        : "",
-    ]),
-  );
-  const uniformEnabled = new Set(
-    Array.isArray(savedUniform?.enabled)
-      ? savedUniform.enabled.filter((id) =>
-          SMART_FIELDS.some((field) => field.id === id),
-        )
-      : [],
-  );
+  const savedUniform = normalizeSmartUniform(readStored(UNIFORM_KEY, {}));
+  const uniformValues = savedUniform.values;
+  const uniformEnabled = new Set(savedUniform.enabled);
+  // A loaded account preset must not replace the shared browser defaults.
+  let privateUniform = false;
+  let presets = [];
+  let presetsBusy = false;
+  const presetURL = "/api/smart/presets";
   const selectedAssets = () => session.assets.filter((asset) => asset.selected);
   const getAsset = (id) => session.assets.find((asset) => asset.id === id);
   const setAsset = (id, value) => {
@@ -195,7 +190,7 @@ export function setupSmartEditor(api) {
     syncControls();
     toast("API Key 已清除。");
   };
-  const newTagButton = (descriptor) =>
+  const newTagButton = (descriptor) => descriptor.id === "gender" ? "" :
     `<button type="button" class="smart-new-tag" data-smart-action="new-tag" data-smart-field-key="${descriptor.id}" aria-label="新建${escape(descriptor.label)}标签" aria-haspopup="dialog" aria-controls="smart-options-dialog">+ 新建</button>`;
   const fieldCaption = (descriptor) =>
     `<span class="smart-field-caption" title="${escape(descriptor.hint || "")}">${escape(descriptor.label)}${descriptor.optional ? "<small>选填</small>" : ""}</span>`;
@@ -220,7 +215,7 @@ export function setupSmartEditor(api) {
   mountTool(
     "smart",
     `<div class="smart-settings">
-      <section>${sectionHeading("01", "添加素材")}${upload("smart-files", "选择视频或图片", "拖入文件，支持多选 · 每批最多 100 个素材", "video/*,image/*,.mp4,.mov,.webm,.jpg,.jpeg,.png,.webp,.gif", true, true)}<p id="smart-import-status" class="smart-note" role="status"></p><p class="smart-note">原文件保留在本地。视频按时间均匀提取 8 张画面，图片使用 1 张画面。</p></section>
+      <section>${sectionHeading("01", "添加素材")}${upload("smart-files", "选择视频或图片", "拖入文件，支持多选 · 每批最多 100 个素材", "video/*,image/*,.mp4,.mov,.webm,.jpg,.jpeg,.png,.webp,.gif", true, true)}<p id="smart-import-status" class="smart-note" role="status"></p><p class="smart-note">原文件保留在本地。视频分析抽取 6 张画面，其中后半段 4 张用于判断角色性别。批量分析按列表顺序逐条处理。</p></section>
       <section>${sectionHeading("02", "AI 连接")}
         ${field("API Key", input("smart-api-key", session.apiKey, "password", 'autocomplete="off" spellcheck="false" placeholder="填写你的 API Key"'))}
         <div class="smart-key-actions"><label class="smart-check"><input id="smart-remember-key" type="checkbox" ${session.rememberKey ? "checked" : ""}><span>在此浏览器记住 Key</span></label><button type="button" data-smart-action="clear-key">清除 Key</button></div>
@@ -255,13 +250,28 @@ export function setupSmartEditor(api) {
       <p class="smart-note smart-session-note">文件和分析结果仅保留在当前标签页，切换工具不会丢失；刷新后需重新导入。建议及时导出命名清单。</p>
     </div>`,
     `<div class="smart-output">
-      <section class="smart-uniform-section"><div class="smart-section-heading"><h3>统一修改</h3><button type="button" class="smart-text-button" data-smart-action="options">管理字段选项</button></div><p class="smart-note">勾选并填写字段后，待分析素材会自动预填。分析结果优先，逐条手动修改的字段会保留。要批量更改已分析的素材，可点「应用统一修改」。</p><div class="smart-uniform-grid">${uniformMarkup()}</div><div class="smart-uniform-actions"><select id="smart-uniform-scope" aria-label="统一修改范围"><option value="selected">应用到所选素材</option><option value="all">应用到全部素材</option></select><button type="button" class="button secondary" data-smart-action="apply-uniform">应用统一修改</button><button type="button" class="smart-text-button" data-smart-action="clear-uniform">清空统一设置</button></div></section>
+      <section class="smart-uniform-section"><div class="smart-section-heading"><h3>统一修改</h3><button type="button" class="smart-text-button" data-smart-action="options">管理字段选项</button></div><p class="smart-note">勾选并填写字段后，待分析素材会自动预填。分析结果优先，逐条手动修改的字段会保留。要批量更改已分析的素材，可点「应用统一修改」。</p><div class="smart-uniform-grid">${uniformMarkup()}</div><div class="smart-uniform-actions"><select id="smart-uniform-scope" aria-label="统一修改范围"><option value="selected">应用到所选素材</option><option value="all">应用到全部素材</option></select><button type="button" class="button secondary" data-smart-action="apply-uniform">应用统一修改</button><button type="button" class="smart-text-button" data-smart-action="clear-uniform">清空统一设置</button><button type="button" class="button secondary" data-smart-action="presets" aria-haspopup="dialog" aria-controls="smart-presets-dialog">保存 / 载入预设</button></div></section>
       <div class="smart-list-toolbar"><label class="smart-check"><input id="smart-select-all" type="checkbox"><span id="smart-selection-count">已选 0 / 0</span></label><div><button type="button" data-smart-action="unlock-selected">解除所选字段保护</button><button type="button" data-smart-action="remove-selected">移除所选</button></div></div>
       <p id="smart-summary" class="smart-summary" role="status" hidden></p><p id="smart-name-error" class="smart-error" role="alert" hidden></p>
       <div id="smart-assets" class="smart-assets"></div>
       <div class="smart-export-bar"><div><strong id="smart-export-count">等待添加素材</strong><p>下载重命名副本，保留原画质与文件格式。</p></div><div><button type="button" id="smart-export-csv" class="button secondary" data-smart-action="csv">${icon("file")}命名清单 CSV</button><button type="button" id="smart-export-zip" class="button primary" data-smart-action="zip">${icon("download")}下载所选 ZIP</button></div></div>
     </div>
-    <dialog id="smart-options-dialog" class="smart-dialog" aria-labelledby="smart-options-title"><form method="dialog" class="smart-dialog-heading"><h3 id="smart-options-title">管理字段选项</h3><button type="submit" class="smart-icon-button" aria-label="关闭字段选项">${icon("close")}</button></form><p class="smart-note">标签代码用于文件名，含义用于说明与 AI 判断。保存到当前浏览器，刷新后仍可使用；相同代码更新含义，不重复添加。</p><label class="field"><span>选择字段</span><select id="smart-options-field">${SMART_FIELDS.map((descriptor) => `<option value="${descriptor.id}">${escape(descriptor.label)}</option>`).join("")}</select></label><form id="smart-option-form" class="smart-option-add"><label><span>标签代码</span><input id="smart-option-value" type="text" placeholder="输入自定义代码" aria-label="新增选项代码" maxlength="64" autocomplete="off"></label><label><span>含义（可选）</span><input id="smart-option-label" type="text" placeholder="标签的说明" aria-label="新增选项含义" maxlength="80" autocomplete="off"></label><button type="submit" id="smart-option-save" class="button secondary" data-smart-action="add-option">保存标签</button></form><div id="smart-options-list"></div><button type="button" class="smart-text-button" data-smart-action="reset-options">恢复此字段默认选项</button></dialog>
+    <dialog id="smart-presets-dialog" class="smart-dialog" aria-labelledby="smart-presets-title">
+      <form method="dialog" class="smart-dialog-heading"><h3 id="smart-presets-title">统一修改预设</h3><button type="submit" class="smart-icon-button" aria-label="关闭预设">${icon("close")}</button></form>
+      <p id="smart-presets-status" class="smart-note" role="status"></p>
+      <a id="smart-presets-signin" class="button primary" href="/signin-with-chatgpt?return_to=%2F%23smart" target="_top" hidden>用 ChatGPT 登录</a>
+      <div id="smart-presets-controls" class="smart-presets-controls" hidden>
+        <form id="smart-preset-form">
+          <label class="field"><span>预设名称</span><input id="smart-preset-name" type="text" maxlength="60" placeholder="例如：PolyBuzz 英语混剪" required></label>
+          <button type="submit" class="button secondary">保存当前设置</button>
+        </form>
+        <div class="smart-preset-picker">
+          <label class="field"><span>我的预设</span><select id="smart-preset-list"></select></label>
+          <button type="button" class="button secondary" data-smart-action="load-preset">载入预设</button>
+        </div>
+      </div>
+    </dialog>
+    <dialog id="smart-options-dialog" class="smart-dialog" aria-labelledby="smart-options-title"><form method="dialog" class="smart-dialog-heading"><h3 id="smart-options-title">管理字段选项</h3><button type="submit" class="smart-icon-button" aria-label="关闭字段选项">${icon("close")}</button></form><p class="smart-note">标签代码用于文件名，含义用于说明与 AI 判断。保存到当前浏览器，刷新后仍可使用；相同代码更新含义，不重复添加。</p><label class="field"><span>选择字段</span><select id="smart-options-field">${SMART_FIELDS.filter(({ id }) => id !== "gender").map((descriptor) => `<option value="${descriptor.id}">${escape(descriptor.label)}</option>`).join("")}</select></label><form id="smart-option-form" class="smart-option-add"><label><span>标签代码</span><input id="smart-option-value" type="text" placeholder="输入自定义代码" aria-label="新增选项代码" maxlength="64" autocomplete="off"></label><label><span>含义（可选）</span><input id="smart-option-label" type="text" placeholder="标签的说明" aria-label="新增选项含义" maxlength="80" autocomplete="off"></label><button type="submit" id="smart-option-save" class="button secondary" data-smart-action="add-option">保存标签</button></form><div id="smart-options-list"></div><button type="button" class="smart-text-button" data-smart-action="reset-options">恢复此字段默认选项</button></dialog>
     <dialog id="smart-preview-dialog" class="smart-dialog smart-media-dialog"><form method="dialog" class="smart-dialog-heading"><h3 id="smart-preview-title">素材预览</h3><button type="submit" class="smart-icon-button" aria-label="关闭素材预览">${icon("close")}</button></form><div id="smart-media-preview"></div></dialog>
     <dialog id="smart-optimize-dialog" class="smart-dialog" aria-labelledby="smart-optimize-title">
       <h3 id="smart-optimize-title">本地处理素材</h3>
@@ -328,8 +338,75 @@ export function setupSmartEditor(api) {
     $("#smart-analysis-progress p").textContent = text;
   };
   const persistSettings = () => save(SETTINGS_KEY, session.settings);
-  const persistUniform = () =>
-    save(UNIFORM_KEY, { values: uniformValues, enabled: [...uniformEnabled] });
+  const uniformSnapshot = () => ({ values: { ...uniformValues }, enabled: [...uniformEnabled] });
+  const persistUniform = () => {
+    if (!privateUniform) save(UNIFORM_KEY, uniformSnapshot());
+  };
+
+  function showPresets(selected = "") {
+    const list = $("#smart-preset-list");
+    list.replaceChildren(new Option(presets.length ? "选择预设" : "暂无预设", ""));
+    for (const { id, name } of presets) list.add(new Option(name, id));
+    list.value = selected;
+    $("[data-smart-action='load-preset']", root).disabled = !list.value;
+  }
+
+  async function requestPresets(name) {
+    if (presetsBusy) return;
+    presetsBusy = true;
+    const status = $("#smart-presets-status");
+    const controls = $("#smart-presets-controls");
+    const signIn = $("#smart-presets-signin");
+    const saveButton = $("#smart-preset-form button");
+    saveButton.disabled = true;
+    if (!name) {
+      controls.hidden = true;
+      signIn.hidden = true;
+    }
+    status.textContent = name ? "正在保存…" : "正在读取预设…";
+    try {
+      const response = await fetch(presetURL, {
+        signal,
+        ...(name ? {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, ...uniformSnapshot() }),
+        } : {}),
+      });
+      if (response.status === 401) {
+        controls.hidden = true;
+        signIn.hidden = false;
+        presets = [];
+        status.textContent = "登录后可保存个人预设，并在其他设备载入。";
+        return;
+      }
+      if (!response.headers.get("Content-Type")?.includes("application/json"))
+        throw new Error("当前部署未连接账号预设服务。");
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "操作失败，请重试。");
+      if (name) {
+        presets.unshift(result.preset);
+        showPresets(result.preset.id);
+        $("#smart-preset-name").value = "";
+        status.textContent = "已保存，可在其他设备载入。";
+      } else {
+        presets = result.presets;
+        showPresets();
+        controls.hidden = false;
+        status.textContent = "预设会保存勾选状态和字段值。";
+      }
+    } catch (error) {
+      if (!signal.aborted) {
+        status.textContent = error instanceof TypeError
+          ? "无法连接预设服务，请重试。"
+          : error.message || "预设服务暂不可用，请重试。";
+      }
+    } finally {
+      presetsBusy = false;
+      saveButton.disabled = false;
+    }
+  }
+
   const persistConfig = () => {
     session.config = {
       baseURL: $("#smart-base-url").value.trim(),
@@ -404,6 +481,7 @@ export function setupSmartEditor(api) {
   }
 
   function fieldOptions(key, value, emptyLabel) {
+    if (key === "gender") value = normalizeSmartGender(value);
     const options = session.options[key];
     const current = value && !options.some((option) => option.value === value)
       ? [{ value, label: value }]
@@ -529,7 +607,10 @@ export function setupSmartEditor(api) {
   }
 
   const uniformPatch = () =>
-    Object.fromEntries([...uniformEnabled].map((key) => [key, uniformValues[key] || ""]));
+    Object.fromEntries([...uniformEnabled].flatMap((key) => {
+      const value = uniformValues[key] || "";
+      return key === "gender" && value && !normalizeSmartGender(value) ? [] : [[key, value]];
+    }));
   const uniformPreview = () => ({
     patch: Object.fromEntries(
       Object.entries(uniformPatch()).filter(([, value]) => value.trim()),
@@ -564,6 +645,9 @@ export function setupSmartEditor(api) {
   }
 
   function fieldMarkup(asset, descriptor) {
+    if (descriptor.id === "femaleCategory" && isSmartFemaleCategoryDisabled(asset)) {
+      return `<div class="smart-asset-field" data-smart-field-wrap="femaleCategory"><div class="smart-field-heading">${fieldCaption(descriptor)}</div><select disabled aria-label="${escape(asset.originalName)}的女性向分类"><option value="">FMAL · 已关闭</option></select></div>`;
+    }
     const locked = asset.manualFields.includes(descriptor.id);
     const value = asset.fields[descriptor.id] || "";
     const control = fieldControl(
@@ -572,7 +656,7 @@ export function setupSmartEditor(api) {
     return `<div class="smart-asset-field ${locked ? "is-protected" : ""}" data-smart-field-wrap="${descriptor.id}"><div class="smart-field-heading">${fieldCaption(descriptor)}<div class="smart-field-actions"><button type="button" data-smart-action="unlock-field" data-smart-field-key="${descriptor.id}" ${locked ? "" : "hidden"} title="解除保护，允许后续统一修改和 AI 分析更新">手动 · 解锁</button>${newTagButton(descriptor)}</div></div>${control}</div>`;
   }
 
-  function renderAssets() {
+  function renderAssets(updatedAssetId) {
     if (signal.aborted) return;
     const editing = document.activeElement;
     const editingAsset = editing?.closest("[data-smart-id]");
@@ -582,7 +666,8 @@ export function setupSmartEditor(api) {
       "data-smart-metadata",
     ].find((attribute) => editing?.hasAttribute(attribute));
     const draft =
-      editingAsset && editingAttribute && editing instanceof HTMLInputElement
+      editingAsset && (!updatedAssetId || editingAsset.dataset.smartId === updatedAssetId) &&
+      editingAttribute && editing instanceof HTMLInputElement
         ? {
             id: editingAsset.dataset.smartId,
             attribute: editingAttribute,
@@ -594,27 +679,32 @@ export function setupSmartEditor(api) {
           }
         : null;
     const assets = previewAssets();
-    $("#smart-assets").innerHTML = assets.length
-      ? assets
-          .map((asset, index) => {
-            const { compress, resize } = smartMediaChecks(asset.file, asset.metadata);
-            const checks = [
-              `${asset.metadata.width} × ${asset.metadata.height}`,
-              durationLabel(asset.metadata.duration),
-              byteLabel(asset.file.size),
-            ];
-            if (asset.metadata.type === "video")
-              checks.push(resize ? "可调整到 1080p" : "1080p");
-            if (compress) checks.push("文件 > 32 MB");
-            if (asset.sourceFile) checks.push("已本地处理");
-            return `<article class="smart-asset" data-smart-id="${asset.id}"><div class="smart-asset-heading"><input type="checkbox" data-smart-selected ${asset.selected ? "checked" : ""} aria-label="选择 ${escape(asset.originalName)}"><button type="button" class="smart-thumbnail" data-smart-action="preview" aria-label="预览 ${escape(asset.originalName)}"><img src="${escape(asset.thumbnail)}" alt="">${asset.metadata.type === "video" ? icon("play") : ""}</button><div class="smart-asset-title"><strong title="${escape(asset.originalName)}">${escape(asset.originalName)}</strong><small>${checks.join(" · ")}</small></div><span class="smart-status smart-status-${asset.status}">${statusLabels[asset.status] || "待分析"}</span><button type="button" class="smart-icon-button" data-smart-action="remove-asset" aria-label="移除 ${escape(asset.originalName)}">${icon("trash")}</button></div>
+    const assetMarkup = (asset, index) => {
+      const { compress, resize } = smartMediaChecks(asset.file, asset.metadata);
+      const checks = [
+        `${asset.metadata.width} × ${asset.metadata.height}`,
+        durationLabel(asset.metadata.duration),
+        byteLabel(asset.file.size),
+      ];
+      if (asset.metadata.type === "video")
+        checks.push(resize ? "可调整到 1080p" : "1080p");
+      if (compress) checks.push("文件 > 32 MB");
+      if (asset.sourceFile) checks.push("已本地处理");
+      return `<article class="smart-asset" data-smart-id="${asset.id}"><div class="smart-asset-heading"><input type="checkbox" data-smart-selected ${asset.selected ? "checked" : ""} aria-label="选择 ${escape(asset.originalName)}"><button type="button" class="smart-thumbnail" data-smart-action="preview" aria-label="预览 ${escape(asset.originalName)}"><img src="${escape(asset.thumbnail)}" alt="">${asset.metadata.type === "video" ? icon("play") : ""}</button><div class="smart-asset-title"><strong title="${escape(asset.originalName)}">${escape(asset.originalName)}</strong><small>${checks.join(" · ")}</small></div><span class="smart-status smart-status-${asset.status}">${statusLabels[asset.status] || "待分析"}</span><button type="button" class="smart-icon-button" data-smart-action="remove-asset" aria-label="移除 ${escape(asset.originalName)}">${icon("trash")}</button></div>
         <div class="smart-name-row"><label><span>${String(index + 1).padStart(2, "0")} / 新文件名</span><input id="smart-name-${asset.id}" data-smart-custom-name type="text" value="" maxlength="240" spellcheck="false" aria-label="${escape(asset.originalName)}的新文件名"></label><button type="button" class="smart-text-button" data-smart-action="auto-name" ${asset.customStem ? "" : "hidden"}>恢复模板</button></div>
         <div class="smart-asset-fields">${SMART_FIELDS.map((descriptor) => fieldMarkup(asset, descriptor)).join("")}</div>
         <div class="smart-metadata-fields"><label>命名比例<input data-smart-metadata="ratio" type="text" value="${escape(asset.namingMetadata?.ratio ?? asset.metadata.ratio ?? "")}" maxlength="30" placeholder="例如 9-16"></label><label>命名时长<input data-smart-metadata="duration" type="text" value="${escape(asset.namingMetadata?.duration ?? formatSmartNamingDuration(asset.metadata.duration))}" maxlength="30" placeholder="例如 29s"></label><label>命名分辨率<input data-smart-metadata="resolution" type="text" value="${escape(asset.namingMetadata?.resolution ?? `${asset.metadata.width}x${asset.metadata.height}`)}" maxlength="40" placeholder="例如 1080x1920"></label></div>
-        <p class="smart-asset-note ${asset.status === "failed" ? "smart-error" : ""}" ${asset.summary ? "" : "hidden"}>${escape(asset.summary || "")}</p><div class="smart-asset-footer"><span>手动修改的字段会自动保护，不被 AI 或统一修改覆盖。</span><div><button type="button" data-smart-action="unlock-asset">解除本条保护</button><button type="button" data-smart-action="analyze-one">${asset.status === "failed" ? "重试分析" : "分析此素材"}</button><button type="button" data-smart-action="download-one">${icon("download")}单独下载</button></div></div></article>`;
-          })
-          .join("")
-      : `<div class="smart-empty">${icon("file")}<strong>素材列表会显示在这里</strong><p>添加视频或图片后，可手动命名，也可使用 AI 补齐字段。</p></div>`;
+        <p class="smart-asset-note ${asset.status === "failed" ? "smart-error" : ""}" ${asset.summary ? "" : "hidden"}>${escape(asset.summary || "")}</p><div class="smart-asset-footer"><span>手动修改的字段会自动保护。FMAL 素材的女性向分类优先关闭。</span><div><button type="button" data-smart-action="unlock-asset">解除本条保护</button><button type="button" data-smart-action="analyze-one">${asset.status === "failed" ? "重试分析" : "分析此素材"}</button><button type="button" data-smart-action="download-one">${icon("download")}单独下载</button></div></div></article>`;
+    };
+    const assetIndex = updatedAssetId ? assets.findIndex(({ id }) => id === updatedAssetId) : -1;
+    if (assetIndex >= 0) {
+      const card = $(`[data-smart-id="${updatedAssetId}"]`, root);
+      if (card) card.outerHTML = assetMarkup(assets[assetIndex], assetIndex);
+    } else {
+      $("#smart-assets").innerHTML = assets.length
+        ? assets.map(assetMarkup).join("")
+        : `<div class="smart-empty">${icon("file")}<strong>素材列表会显示在这里</strong><p>添加视频或图片后，可手动命名，也可使用 AI 补齐字段。</p></div>`;
+    }
     $("#smart-summary").hidden = !session.summary;
     $("#smart-summary").textContent = session.summary;
     if (draft) {
@@ -644,14 +734,21 @@ export function setupSmartEditor(api) {
     updateNames();
   }
 
-  function updateAssetProtection(asset) {
+  function updateAssetProtection(asset, changedField) {
     const element = $(`[data-smart-id="${asset.id}"]`, root);
     if (!element) return;
     for (const descriptor of SMART_FIELDS) {
       const wrap = $(`[data-smart-field-wrap="${descriptor.id}"]`, element);
+      if (descriptor.id === "femaleCategory" && changedField === "gender") {
+        const { patch, all } = uniformPreview();
+        wrap.outerHTML = fieldMarkup(previewSmartUniformFields(asset, patch, all), descriptor);
+        continue;
+      }
+      const unlock = $("[data-smart-action='unlock-field']", wrap);
+      if (!unlock) continue;
       const locked = asset.manualFields.includes(descriptor.id);
       wrap.classList.toggle("is-protected", locked);
-      $("[data-smart-action='unlock-field']", wrap).hidden = !locked;
+      unlock.hidden = !locked;
     }
   }
 
@@ -883,12 +980,20 @@ export function setupSmartEditor(api) {
     const prefilledIds = new Set(
       assets.filter((asset) => all || asset.selected).map((asset) => asset.id),
     );
-    let completed = 0,
-      failed = 0;
+    let completed = 0;
+    let failed = 0;
+    let configurationError = "";
+    const updateProgress = (fraction, label) => {
+      progress(
+        (completed + failed + fraction) / targetIds.length,
+        `已处理 ${completed + failed} / ${targetIds.length} · ${label}`,
+      );
+    };
+
     syncControls();
     try {
-      for (const [index, assetId] of targetIds.entries()) {
-        if (controller.signal.aborted) break;
+      for (const assetId of targetIds) {
+        if (controller.signal.aborted || configurationError) break;
         const asset = getAsset(assetId);
         if (!asset) continue;
         analysisPrevious.set(assetId, { status: asset.status, summary: asset.summary, analysisId: asset.analysisId });
@@ -898,31 +1003,23 @@ export function setupSmartEditor(api) {
           status: "analyzing",
           summary: "正在读取分析画面…",
         });
-        renderAssets();
-        progress(
-          index / targetIds.length,
-          `正在分析 ${index + 1} / ${targetIds.length} · ${asset.originalName}`,
-        );
+        renderAssets(assetId);
+        updateProgress(0, `正在抽帧 · ${asset.originalName}`);
         try {
-          const frames = await extractSmartFrames(asset.file, {
+          const { frames, firstHalfFrameCount } = await extractSmartFrames(asset.file, {
             signal: controller.signal,
-            count: 8,
-            maxDimension: 1280,
-            onProgress: (value) =>
-              progress(
-                (index + Math.max(0, Math.min(1, value)) * 0.3) /
-                  targetIds.length,
-                `正在抽帧 ${index + 1} / ${targetIds.length} · ${asset.originalName}`,
-              ),
+            onProgress: (value) => updateProgress(value * 0.3, `正在抽帧 · ${asset.originalName}`),
           });
+          updateProgress(0.3, `正在识别 · ${asset.originalName}`);
           const result = await analyzeSmartFrames(frames, {
             config,
             signal: controller.signal,
             fields: SMART_FIELDS,
             options: session.options,
+            firstHalfFrameCount,
+            onRetry: () => updateProgress(0.3, `等待重试 · ${asset.originalName}`),
           });
-          if (controller.signal.aborted)
-            throw new DOMException("已取消分析", "AbortError");
+          controller.signal.throwIfAborted();
           const latest = getAsset(assetId);
           if (latest?.analysisId === runId) {
             const prefilled = prefilledIds.has(assetId) && Object.keys(patch).length
@@ -937,30 +1034,28 @@ export function setupSmartEditor(api) {
           }
           completed++;
         } catch (error) {
-          const latest = getAsset(assetId);
-          if (controller.signal.aborted || error.name === "AbortError") {
-            if (latest?.analysisId === runId)
-              setAsset(assetId, {
-                ...latest,
-                status: "canceled",
-                summary: "分析已停止，已填写字段保留，可重新分析。",
-              });
-            break;
-          }
+          if (controller.signal.aborted || error.name === "AbortError") break;
           failed++;
+          if ([401, 403, 404].includes(error.status))
+            configurationError = error.message;
+          const latest = getAsset(assetId);
           if (latest?.analysisId === runId)
             recordEdit(() => setAsset(assetId, {
               ...latest,
               status: "failed",
-              summary:
-                error.message || "分析失败，请检查模型与 API 配置后重试。",
+              summary: error.message || "分析失败，请检查模型与 API 配置后重试。",
             }));
+        } finally {
+          if (!controller.signal.aborted) renderAssets(assetId);
         }
-        renderAssets();
       }
-      if (!signal.aborted)
-        session.summary = `${controller.signal.aborted ? "已停止分析" : "本轮分析完成"}：成功 ${completed} 个${failed ? `，失败 ${failed} 个` : ""}。已完成结果和手动修改均已保留。`;
+    } catch {
+      configurationError ||= "批量分析中断，请重试未完成的素材。";
     } finally {
+      const stopped = controller.signal.aborted || configurationError;
+      const remaining = targetIds.length - completed - failed;
+      if (!signal.aborted)
+        session.summary = `${stopped ? "已停止分析" : "本轮分析完成"} · 成功 ${completed} · 失败 ${failed}${remaining ? ` · 未完成 ${remaining}` : ""}${configurationError ? `。 ${configurationError}` : "。"}`;
       analysisPrevious.clear();
       signal.removeEventListener("abort", abort);
       analysisController = null;
@@ -971,7 +1066,7 @@ export function setupSmartEditor(api) {
           asset.summary = "分析已停止，可重新分析。";
         }
       if (!signal.aborted) {
-        progress(1, session.summary);
+        progress((completed + failed) / targetIds.length, session.summary);
         renderAssets();
       }
     }
@@ -1039,6 +1134,18 @@ export function setupSmartEditor(api) {
   on($("#smart-files"), "change", (event) => {
     void importFiles(event.target.files);
   });
+  on($("#smart-preset-form"), "submit", (event) => {
+    event.preventDefault();
+    const name = $("#smart-preset-name").value.trim();
+    if (!name) {
+      $("#smart-presets-status").textContent = "请输入预设名称。";
+      return;
+    }
+    void requestPresets(name);
+  });
+  on($("#smart-preset-list"), "change", (event) => {
+    $("[data-smart-action='load-preset']", root).disabled = !event.target.value;
+  });
   on($("#smart-option-form"), "submit", (event) => {
     event.preventDefault();
     saveOption();
@@ -1078,13 +1185,14 @@ export function setupSmartEditor(api) {
     if (target.hasAttribute("data-smart-custom-name")) {
       updateCustomName(asset, target);
     } else if (target.dataset.smartAssetField) {
+      const key = target.dataset.smartAssetField;
       const next = applySmartFields(
         asset,
-        { [target.dataset.smartAssetField]: target.value },
+        { [key]: target.value },
         { source: "manual" },
       );
       setAsset(asset.id, next);
-      updateAssetProtection(next);
+      updateAssetProtection(next, key);
       updateNames();
     } else if (target.dataset.smartMetadata) {
       setAsset(asset.id, {
@@ -1213,7 +1321,21 @@ export function setupSmartEditor(api) {
         return applySmartFields(item, patch, { source: "uniform" });
       });
       renderAssets();
-      toast(`已应用到 ${count} 个素材，受保护字段已保留。`);
+      toast(`已应用到 ${count} 个素材。`);
+    } else if (action === "presets") {
+      $("#smart-presets-dialog").showModal();
+      void requestPresets();
+    } else if (action === "load-preset") {
+      const preset = presets.find(({ id }) => id === $("#smart-preset-list").value);
+      if (!preset) return;
+      const snapshot = normalizeSmartUniform(preset);
+      Object.assign(uniformValues, snapshot.values);
+      uniformEnabled.clear();
+      snapshot.enabled.forEach((key) => uniformEnabled.add(key));
+      privateUniform = true;
+      refreshFieldChoices();
+      $("#smart-presets-dialog").close();
+      toast(`已载入「${preset.name}」。`);
     } else if (action === "clear-uniform") {
       uniformEnabled.clear();
       for (const key of Object.keys(uniformValues)) delete uniformValues[key];
@@ -1330,6 +1452,7 @@ export function setupSmartEditor(api) {
       summary: session.summary,
       uniformValues,
       uniformEnabled: [...uniformEnabled],
+      privateUniform,
       sequenceEdited,
       settingsError,
     }),
@@ -1338,7 +1461,7 @@ export function setupSmartEditor(api) {
       const { assets, settings, options, config, summary } = state;
       Object.assign(session, { assets, settings, options, config, summary });
       save(CONFIG_KEY, config);
-      ({ sequenceEdited, settingsError } = state);
+      ({ sequenceEdited, settingsError, privateUniform = false } = state);
       Object.assign(uniformValues, state.uniformValues);
       uniformEnabled.clear();
       state.uniformEnabled.forEach((key) => uniformEnabled.add(key));
